@@ -17,11 +17,11 @@ Or install it locally from within this repository:
 $ cargo install --path .
 ```
 
-Alternatively, you can run the binary directly from the repository without installing it by using `cargo run --`:
+Alternatively, you can run the binary directly from the repository in release mode (highly recommended for performance) using `cargo run --release --`:
 ```
-$ cargo run -- examples/example_grid.txt
+$ cargo run --release -- examples/example_grid.txt
 # Or for batch mode:
-$ cargo run -- -b examples/batch_slots.txt
+$ cargo run --release -- -b examples/batch_slots.txt
 ```
 
 Then you just need to provide a grid as an input file:
