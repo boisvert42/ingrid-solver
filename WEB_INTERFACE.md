@@ -46,17 +46,15 @@ Navigate to the web interface in your browser:
 ### C. Frontend Board & UI Application (`www/`)
 * **`www/index.html`**: A dark-theme CSS/HTML layout containing panels for entering slot configurations and browsing valid candidate words.
 * **`www/index.js`**: Automatically fetches the default dictionary `spreadthewordlist.dict` from the resources folder at startup, instantiates the WebAssembly package, sets the minimum score constraint to 50, renders the cell board, and binds interactive actions.
+* **Word-by-Word Board Representation**: Displays cell input squares grouped horizontally as individual slot rows. Focus events highlight matching cells in all crossing slots and select the slot's candidates in the sidebar. Typing in a cell dynamically synchronizes its value to all intersecting slots on the fly.
 
 ---
 
-## 3. What Remains to Do / Roadmap
+## 4. What Remains to Do / Roadmap
 
 1. **Web Worker Integration**:
    * Move the `WasmSolver` instantiations and `run_ac3` calls into a Web Worker.
    * This prevents CPU-heavy dictionary filtering and constraint propagation loops from blocking the main UI thread (avoiding page lag).
 
-2. **Visual Grid Board Enhancements**:
-   * Instead of a flat list of cell input cards, parse the topological specifications to render visual boards (e.g. rendering hexagonal honeycombs for hexagonal slots, or interactive 2D grid meshes).
-
-3. **Performance Optimization for Large Dictionaries**:
+2. **Performance Optimization for Large Dictionaries**:
    * Improve parsing speeds of large dictionary files (e.g., standard dictionaries with >100,000 words) inside the `load_dictionary` function.

@@ -99,40 +99,85 @@ function parseSlotsConfiguration(slotsDef) {
     }
 }
 
-// Render cells on the board
+// Render cells on the board by word slots
 function renderBoard() {
     cellsBoard.innerHTML = "";
     
-    cellNames.forEach(name => {
-        const card = document.createElement("div");
-        card.className = "cell-card";
-        card.dataset.name = name;
-        card.id = `cell-${name}`;
+    slotConfigs.forEach(slot => {
+        const row = document.createElement("div");
+        row.className = "board-row";
+        row.id = `board-row-${slot.id}`;
         
-        const nameLabel = document.createElement("span");
-        nameLabel.className = "cell-name";
-        nameLabel.textContent = name.toUpperCase();
+        const label = document.createElement("span");
+        label.className = "board-row-label";
+        label.textContent = `Slot ${slot.id + 1}`;
         
-        const input = document.createElement("input");
-        input.className = "cell-input";
-        input.type = "text";
-        input.maxLength = 1;
-        input.id = `input-${name}`;
+        const inputsContainer = document.createElement("div");
+        inputsContainer.className = "board-row-inputs";
         
-        input.addEventListener("input", (e) => {
-            e.target.value = e.target.value.toLowerCase().replace(/[^a-z]/g, '');
-            propagateConstraints();
+        slot.cells.forEach((cellName, charIdx) => {
+            const square = document.createElement("div");
+            square.className = "cell-square";
+            square.dataset.cell = cellName;
+            
+            const cellLabel = document.createElement("span");
+            cellLabel.className = "cell-square-name";
+            cellLabel.textContent = cellName;
+            
+            const input = document.createElement("input");
+            input.className = "cell-square-input";
+            input.type = "text";
+            input.maxLength = 1;
+            input.dataset.cell = cellName;
+            input.dataset.slotId = slot.id;
+            input.dataset.charIdx = charIdx;
+            
+            // Sync values across all cells sharing this name
+            input.addEventListener("input", (e) => {
+                const val = e.target.value.toLowerCase().replace(/[^a-z]/g, '');
+                
+                // Find all inputs sharing the same cell name and sync them
+                document.querySelectorAll(`input[data-cell="${cellName}"]`).forEach(inp => {
+                    inp.value = val;
+                });
+                
+                propagateConstraints();
+            });
+            
+            // Highlight crossings on focus
+            input.addEventListener("focus", () => {
+                selectSlot(slot.id); // Clicking/focusing an input selects its slot!
+                
+                document.querySelectorAll(".cell-square").forEach(sq => {
+                    sq.classList.remove("crossing-highlight");
+                });
+                document.querySelectorAll(`.cell-square[data-cell="${cellName}"]`).forEach(sq => {
+                    sq.classList.add("crossing-highlight");
+                });
+            });
+            
+            input.addEventListener("blur", () => {
+                document.querySelectorAll(".cell-square").forEach(sq => {
+                    sq.classList.remove("crossing-highlight");
+                });
+            });
+            
+            square.appendChild(cellLabel);
+            square.appendChild(input);
+            inputsContainer.appendChild(square);
         });
         
-        card.appendChild(nameLabel);
-        card.appendChild(input);
+        row.appendChild(label);
+        row.appendChild(inputsContainer);
         
-        // Focus click behavior
-        card.addEventListener("click", () => {
-            input.focus();
+        // Clicking the row selects the slot
+        row.addEventListener("click", (e) => {
+            if (e.target.tagName !== "INPUT") {
+                selectSlot(slot.id);
+            }
         });
         
-        cellsBoard.appendChild(card);
+        cellsBoard.appendChild(row);
     });
 }
 
@@ -174,17 +219,15 @@ function selectSlot(slotId) {
     document.querySelectorAll(".slot-item").forEach(item => {
         item.classList.remove("active");
     });
-    document.getElementById(`slot-item-${slotId}`).classList.add("active");
+    const slotItem = document.getElementById(`slot-item-${slotId}`);
+    if (slotItem) slotItem.classList.add("active");
     
-    // Highlight corresponding cells in the grid
-    document.querySelectorAll(".cell-card").forEach(card => {
-        card.classList.remove("highlighted");
+    // Update active class in board rows
+    document.querySelectorAll(".board-row").forEach(row => {
+        row.classList.remove("active");
     });
-    
-    const activeSlot = slotConfigs[slotId];
-    activeSlot.cells.forEach(cellName => {
-        document.getElementById(`cell-${cellName}`).classList.add("highlighted");
-    });
+    const boardRow = document.getElementById(`board-row-${slotId}`);
+    if (boardRow) boardRow.classList.add("active");
     
     // Render the options list
     renderCandidates();
@@ -194,7 +237,8 @@ function selectSlot(slotId) {
 function getBoardFill() {
     const fill = {};
     cellNames.forEach(name => {
-        const val = document.getElementById(`input-${name}`).value;
+        const inp = document.querySelector(`input[data-cell="${name}"]`);
+        const val = inp ? inp.value : "";
         if (val && val.length > 0) {
             fill[name] = val;
         }
@@ -273,7 +317,9 @@ function fillSlot(slotId, word) {
     for (let i = 0; i < slot.cells.length; i++) {
         const cellName = slot.cells[i];
         const letter = word[i];
-        document.getElementById(`input-${cellName}`).value = letter;
+        document.querySelectorAll(`input[data-cell="${cellName}"]`).forEach(inp => {
+            inp.value = letter;
+        });
     }
     
     // Propagate constraint changes
