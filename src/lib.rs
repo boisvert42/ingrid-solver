@@ -16,6 +16,7 @@ pub mod grid_config;
 pub mod types;
 pub mod util;
 pub mod word_list;
+pub mod wasm;
 
 /// The expected maximum length for a single slot.
 pub const MAX_SLOT_LENGTH: usize = 21;
