@@ -55,6 +55,7 @@ Navigate to the web interface in your browser:
 * **Instant Selection (Mousedown binding)**: Word selection binds to `mousedown` instead of `click`, ensuring the select action triggers immediately when clicked, bypassing layout shift race conditions.
 * **Double-Click Safety Cooldown**: Autocomplete slot fills implement a 300ms safety cooldown, preventing accidental double-clicks from filling the next auto-focused slot row.
 * **Web Worker Thread Separation**: Spawns a dedicated Web Worker (`solver-worker.js`) to handle Wasm instantiation, dictionary loading, AC-3 runs, and background validation, keeping the main UI thread 100% idle and responsive.
+* **Stable Top-Sorting Promotion**: Validated candidates are promoted to the top section of the list in bold white, but they maintain their original score-based relative order rather than jumping to the absolute top, ensuring a stable visual flow.
 
 ---
 

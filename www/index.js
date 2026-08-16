@@ -356,7 +356,7 @@ function renderCandidates() {
 function updateActiveCandidates(options) {
     worker.postMessage({ type: "STOP_VALIDATION" });
     
-    activeCandidates = options.map(word => ({ word, state: "pending", element: null }));
+    activeCandidates = options.map((word, idx) => ({ word, state: "pending", element: null, originalIdx: idx }));
     renderCandidates();
     
     if (activeSlotId !== null && activeCandidates.length > 0) {
@@ -381,14 +381,20 @@ function handleValidationResult(word, isFillable) {
         candidate.state = "valid";
         if (candidate.element) {
             candidate.element.className = "candidate-item valid";
-            candidatesList.insertBefore(candidate.element, candidatesList.firstChild);
         }
         
-        // Sort valid ones first in our data array
+        // Sort valid ones first, maintaining their original score order (originalIdx)
         activeCandidates.sort((a, b) => {
             if (a.state === "valid" && b.state !== "valid") return -1;
             if (a.state !== "valid" && b.state === "valid") return 1;
-            return 0;
+            return a.originalIdx - b.originalIdx;
+        });
+        
+        // Re-append elements in the new sorted order to rearrange the DOM in-place
+        activeCandidates.forEach(cand => {
+            if (cand.element) {
+                candidatesList.appendChild(cand.element);
+            }
         });
     } else {
         // Remove element from DOM
