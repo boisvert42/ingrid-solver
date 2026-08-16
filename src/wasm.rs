@@ -11,6 +11,7 @@ pub struct WasmSolver {
     slot_configs: Vec<SlotConfig>,
     crossing_count: usize,
     cell_names: Vec<String>,
+    min_score: u16,
 }
 
 #[wasm_bindgen]
@@ -106,6 +107,7 @@ impl WasmSolver {
             slot_configs,
             crossing_count: crossing_id_counter,
             cell_names,
+            min_score: 50,
         })
     }
 
@@ -145,6 +147,10 @@ impl WasmSolver {
         serde_json::to_string(&self.cell_names).unwrap_or_else(|_| "[]".to_string())
     }
 
+    pub fn set_min_score(&mut self, min_score: u16) {
+        self.min_score = min_score;
+    }
+
     pub fn run_ac3(&mut self, fill_json: &str) -> Result<String, JsValue> {
         let word_list = self.word_list.as_mut().ok_or_else(|| JsValue::from_str("Dictionary not loaded"))?;
         
@@ -165,7 +171,7 @@ impl WasmSolver {
             &fill,
             &self.slot_configs,
             1, // width (dummy)
-            0, // min score
+            self.min_score,
         );
         
         crate::grid_config::sort_slot_options(word_list, &self.slot_configs, &mut slot_options);

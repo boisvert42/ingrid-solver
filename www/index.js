@@ -5,12 +5,12 @@ let cellNames = [];
 let slotConfigs = [];
 let activeSlotId = null;
 let remainingOptions = [];
+let dictContents = "";
 
 // DOM Elements
 const initBtn = document.getElementById("init-btn");
 const statusDiv = document.getElementById("status");
 const slotsInput = document.getElementById("slots-input");
-const dictInput = document.getElementById("dict-input");
 const slotsList = document.getElementById("slots-list");
 const cellsBoard = document.getElementById("cells-board");
 const candidatesList = document.getElementById("candidates-list");
@@ -18,43 +18,59 @@ const candidatesList = document.getElementById("candidates-list");
 // Initialize Wasm module
 async function run() {
     try {
+        statusDiv.textContent = "Status: Downloading dictionary...";
+        const response = await fetch("../resources/spreadthewordlist.dict");
+        if (!response.ok) {
+            throw new Error(`Failed to load dictionary: ${response.statusText}`);
+        }
+        dictContents = await response.text();
+        
+        statusDiv.textContent = "Status: Loading WebAssembly...";
         await init();
-        statusDiv.textContent = "Status: WebAssembly Loaded! Click 'Initialize Solver'.";
+        
+        statusDiv.textContent = "Status: Ready! Click 'Initialize Solver'.";
         initBtn.disabled = false;
         
         // Auto-initialize the default grid
         initializeSolver();
     } catch (e) {
-        statusDiv.textContent = `Status: Error loading WebAssembly: ${e.message}`;
+        statusDiv.textContent = `Status: Error initializing: ${e.message}`;
         console.error(e);
     }
 }
 
 // Initialize Solver instance
 function initializeSolver() {
+    if (!dictContents) {
+        statusDiv.textContent = "Status: Dictionary not loaded yet.";
+        return;
+    }
+    
     try {
         statusDiv.textContent = "Status: Initializing solver...";
         
         const slotsDef = slotsInput.value;
-        const dictDef = dictInput.value;
         
         // 1. Create solver instance
         solver = new WasmSolver(slotsDef);
         
-        // 2. Load dictionary
-        solver.load_dictionary(dictDef);
+        // 2. Configure min score to 50
+        solver.set_min_score(50);
         
-        // 3. Get cell names
+        // 3. Load dictionary
+        solver.load_dictionary(dictContents);
+        
+        // 4. Get cell names
         cellNames = JSON.parse(solver.get_cell_names());
         
-        // 4. Parse slots configuration to display
+        // 5. Parse slots configuration to display
         parseSlotsConfiguration(slotsDef);
         
-        // 5. Render Board & Slots List
+        // 6. Render Board & Slots List
         renderBoard();
         renderSlotsList();
         
-        // 6. Propagate initial constraints
+        // 7. Propagate initial constraints
         propagateConstraints();
         
         statusDiv.textContent = "Status: Solver Initialized.";

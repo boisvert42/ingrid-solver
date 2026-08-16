@@ -141,61 +141,101 @@
             padding-bottom: 6px;
         }
 
-        /* Grid Visualization */
-        .cells-container {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 12px;
-            max-width: 600px;
-            justify-content: center;
-            margin-top: 20px;
-        }
-
-        .cell-card {
-            background-color: var(--panel-bg);
-            border: 2px solid var(--border-color);
-            border-radius: 8px;
-            width: 60px;
-            height: 60px;
+        /* Slots Board (Center Panel) */
+        .board-container {
             display: flex;
             flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            position: relative;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .cell-card:hover {
-            border-color: var(--text-muted);
-        }
-
-        .cell-card.highlighted {
-            background-color: var(--highlight-color);
-            border-color: var(--highlight-border);
-        }
-
-        .cell-name {
-            font-size: 0.65rem;
-            color: var(--text-muted);
-            position: absolute;
-            top: 4px;
-            left: 6px;
-        }
-
-        .cell-input {
-            width: 80%;
-            border: none;
-            background: transparent;
-            color: var(--text-color);
-            font-size: 1.5rem;
-            font-weight: 700;
-            text-align: center;
-            text-transform: uppercase;
+            gap: 12px;
+            width: 100%;
+            max-width: 700px;
             margin-top: 10px;
         }
 
-        .cell-input:focus {
+        .board-row {
+            display: flex;
+            align-items: center;
+            padding: 10px 16px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background-color: var(--panel-bg);
+            cursor: pointer;
+            transition: all 0.2s;
+            gap: 16px;
+        }
+
+        .board-row:hover {
+            border-color: var(--text-muted);
+        }
+
+        .board-row.active {
+            border-color: var(--accent-color);
+            background-color: rgba(59, 130, 246, 0.05);
+        }
+
+        .board-row-label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            width: 80px;
+            min-width: 80px;
+            font-weight: 500;
+        }
+
+        .board-row-inputs {
+            display: flex;
+            gap: 8px;
+            flex: 1;
+            flex-wrap: wrap;
+        }
+
+        .cell-square {
+            position: relative;
+            width: 44px;
+            height: 44px;
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+            transition: all 0.2s;
+        }
+
+        .cell-square:focus-within {
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+        }
+
+        .cell-square.crossing-highlight {
+            border-color: #eab308; /* yellow accent for crossing cells */
+            background-color: rgba(234, 179, 8, 0.15);
+        }
+
+        .cell-square-name {
+            position: absolute;
+            top: 2px;
+            left: 4px;
+            font-size: 0.55rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            pointer-events: none;
+        }
+
+        .cell-square-input {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: transparent;
+            color: var(--text-color);
+            font-size: 1.25rem;
+            font-weight: 750;
+            text-align: center;
+            text-transform: uppercase;
+            padding-top: 10px;
+            box-sizing: border-box;
+        }
+
+        .cell-square-input:focus {
             outline: none;
         }
 
@@ -313,24 +353,6 @@ e k r y ;
 j q x ;</textarea>
             </div>
 
-            <div class="form-group">
-                <label for="dict-input">Dictionary (one word per line)</label>
-                <textarea id="dict-input">one
-baas
-sorns
-idea
-sed
-obs
-naoi
-eards
-snee
-sad
-ess
-nana
-oared
-bode
-sis</textarea>
-            </div>
 
             <button id="init-btn">Initialize Solver</button>
 
