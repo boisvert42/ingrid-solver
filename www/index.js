@@ -16,6 +16,10 @@ const slotsInput = document.getElementById("slots-input");
 const slotsList = document.getElementById("slots-list");
 const cellsBoard = document.getElementById("cells-board");
 const candidatesList = document.getElementById("candidates-list");
+const uploadBtn = document.getElementById("upload-btn");
+const dictFileInput = document.getElementById("dict-file-input");
+const uploadedDictName = document.getElementById("uploaded-dict-name");
+const minScoreInput = document.getElementById("min-score-input");
 
 // Initialize Wasm module
 async function run() {
@@ -56,8 +60,9 @@ function initializeSolver() {
         // 1. Create solver instance
         solver = new WasmSolver(slotsDef);
         
-        // 2. Configure min score to 50
-        solver.set_min_score(50);
+        // 2. Configure min score
+        const minScore = parseInt(minScoreInput.value) || 0;
+        solver.set_min_score(minScore);
         
         // 3. Load dictionary
         solver.load_dictionary(dictContents);
@@ -342,6 +347,7 @@ function renderCandidates() {
             fillSlot(activeSlotId, cand.word);
         });
         
+        cand.element = item;
         candidatesList.appendChild(item);
     });
 }
@@ -353,7 +359,7 @@ function updateActiveCandidates(options) {
         currentValidationTask = null;
     }
     
-    activeCandidates = options.map(word => ({ word, state: "pending" }));
+    activeCandidates = options.map(word => ({ word, state: "pending", element: null }));
     renderCandidates();
     
     if (activeSlotId !== null && activeCandidates.length > 0) {
@@ -388,18 +394,30 @@ function startBackgroundValidation(slotId) {
         
         if (isFillable) {
             candidate.state = "valid";
-            // Sort valid ones first, keeping score order among valid/pending sublists
+            if (candidate.element) {
+                candidate.element.className = "candidate-item valid";
+                // Move element to the top of the container
+                candidatesList.insertBefore(candidate.element, candidatesList.firstChild);
+            }
+            
+            // Sort valid ones first in our data array
             activeCandidates.sort((a, b) => {
                 if (a.state === "valid" && b.state !== "valid") return -1;
                 if (a.state !== "valid" && b.state === "valid") return 1;
                 return 0;
             });
         } else {
-            // Remove unfillable candidate
+            // Remove element from DOM
+            if (candidate.element) {
+                candidate.element.remove();
+            }
+            // Remove candidate from array
             activeCandidates.splice(pendingIdx, 1);
+            
+            if (activeCandidates.length === 0) {
+                candidatesList.innerHTML = `<div class="no-candidates" style="color: #ef4444;">No viable candidate words match the current board constraints!</div>`;
+            }
         }
-        
-        renderCandidates();
         
         // Schedule next check on next event loop tick
         currentValidationTask = setTimeout(validateNext, 0);
@@ -467,6 +485,38 @@ function fillSlot(slotId, word) {
 
 // Event Listeners
 initBtn.addEventListener("click", initializeSolver);
+
+uploadBtn.addEventListener("click", () => {
+    dictFileInput.click();
+});
+
+dictFileInput.addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    uploadedDictName.textContent = file.name;
+    statusDiv.textContent = `Status: Reading ${file.name}...`;
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        dictContents = event.target.result;
+        initializeSolver();
+    };
+    reader.onerror = (err) => {
+        statusDiv.textContent = `Status: Error reading file: ${err}`;
+    };
+    reader.readAsText(file);
+});
+
+minScoreInput.addEventListener("change", (e) => {
+    if (solver) {
+        const val = parseInt(e.target.value) || 0;
+        solver.set_min_score(val);
+        statusDiv.textContent = `Status: Min score updated to ${val}. Re-running constraints...`;
+        propagateConstraints();
+        statusDiv.textContent = `Status: Min score updated.`;
+    }
+});
 
 // Start
 run();

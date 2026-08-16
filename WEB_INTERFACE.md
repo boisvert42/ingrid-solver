@@ -50,6 +50,8 @@ Navigate to the web interface in your browser:
 * **Smart Focus Navigation (MCV Heuristic)**: After selecting a candidate word and executing AC-3, the UI automatically identifies the next incomplete slot with the fewest remaining candidate options, focuses it, and highlights its first empty cell.
 * **Backspace Cell Navigation**: Pressing Backspace clears the current letter, syncs the change to all crossing cells, re-runs AC-3 propagation, and shifts input focus to the previous cell within the active slot row.
 * **Auto-Advance Cell Navigation**: Typing a letter in a cell automatically synchronizes it across crossing slots, runs AC-3, and shifts focus to the next cell in the active slot row (stopping at the end of the slot).
+* **Custom Dictionary Upload**: Users can upload `.dict` or `.txt` word lists directly in the left panel. The browser reads the file locally and instantly re-initializes the solver.
+* **Minimum Word Score Filter**: The minimum score threshold can be customized via a numeric input. Updating the score automatically updates candidate availability and runs the solver without reload.
 
 ---
 

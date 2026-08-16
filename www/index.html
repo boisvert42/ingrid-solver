@@ -365,6 +365,19 @@ e k r y ;
 j q x ;</textarea>
             </div>
 
+            <div class="form-group" style="margin-top: 12px; gap: 8px;">
+                <label>Dictionary Settings</label>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <button id="upload-btn" style="background-color: var(--panel-bg); border: 1px solid var(--border-color); color: var(--text-color);">Upload Custom List</button>
+                    <input type="file" id="dict-file-input" accept=".dict,.txt" style="display: none;" />
+                    <span id="uploaded-dict-name" style="font-size: 0.75rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px;">spreadthewordlist.dict</span>
+                </div>
+            </div>
+
+            <div class="form-group" style="margin-top: 12px; margin-bottom: 12px;">
+                <label for="min-score-input">Minimum Word Score</label>
+                <input type="number" id="min-score-input" value="50" min="0" max="100" style="width: 80px; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); background-color: var(--bg-color); color: var(--text-color); font-size: 0.875rem;" />
+            </div>
 
             <button id="init-btn">Initialize Solver</button>
 
