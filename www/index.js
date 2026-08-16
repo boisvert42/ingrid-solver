@@ -9,6 +9,12 @@ const uploadBtn = document.getElementById("upload-btn");
 const dictFileInput = document.getElementById("dict-file-input");
 const uploadedDictName = document.getElementById("uploaded-dict-name");
 const minScoreInput = document.getElementById("min-score-input");
+const openSettingsBtn = document.getElementById("open-settings-btn");
+const cancelSettingsBtn = document.getElementById("cancel-settings-btn");
+const closeModalX = document.getElementById("close-modal-x");
+const settingsModal = document.getElementById("settings-modal");
+const activeDictLabel = document.getElementById("active-dict-label");
+const activeScoreLabel = document.getElementById("active-score-label");
 
 let cellNames = [];
 let slotConfigs = [];
@@ -35,6 +41,11 @@ worker.onmessage = (e) => {
             renderSlotsList();
             propagateConstraints();
             statusDiv.textContent = "Status: Solver Initialized.";
+            
+            // Close settings modal and update labels
+            settingsModal.classList.remove("open");
+            activeDictLabel.textContent = uploadedDictName.textContent;
+            activeScoreLabel.textContent = minScoreInput.value;
             break;
             
         case "AC3_SUCCESS":
@@ -492,6 +503,20 @@ minScoreInput.addEventListener("change", (e) => {
     statusDiv.textContent = `Status: Min score updated to ${val}. Re-running constraints...`;
     propagateConstraints();
 });
+
+// Modal Event Listeners
+openSettingsBtn.addEventListener("click", () => {
+    settingsModal.classList.add("open");
+});
+
+const closeModal = () => {
+    settingsModal.classList.remove("open");
+    // Revert inputs in modal to active values if canceled
+    minScoreInput.value = activeScoreLabel.textContent;
+};
+
+cancelSettingsBtn.addEventListener("click", closeModal);
+closeModalX.addEventListener("click", closeModal);
 
 // Start
 run();

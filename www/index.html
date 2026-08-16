@@ -335,6 +335,121 @@
             text-align: center;
             margin-top: 20px;
         }
+
+        /* Modal Settings styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+        }
+
+        .modal-overlay.open {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-card {
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            width: 90%;
+            max-width: 550px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            animation: modalSlide 0.2s ease;
+        }
+
+        @keyframes modalSlide {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .modal-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .modal-close-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 1.25rem;
+            cursor: pointer;
+            padding: 4px;
+            line-height: 1;
+            transition: color 0.2s;
+        }
+
+        .modal-close-btn:hover {
+            color: var(--text-color);
+        }
+
+        .modal-body {
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+
+        .modal-footer {
+            padding: 16px 20px;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            background-color: rgba(0, 0, 0, 0.1);
+        }
+
+        /* Active Config card on left panel */
+        .active-config-card {
+            background-color: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .active-config-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.85rem;
+        }
+
+        .active-config-value {
+            font-weight: 500;
+            color: var(--text-color);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 160px;
+        }
     </style>
 </head>
 <body>
@@ -346,43 +461,22 @@
     <div class="main-container">
         <!-- Left Panel: Configurations -->
         <div class="panel" id="left-panel">
-            <div class="form-group">
-                <label for="slots-input">Slots Definition</label>
-                <textarea id="slots-input">a b c ;
-e f g h ;
-j k l m n ;
-q r s t ;
-x y z ;
-a e j ;
-b f k q ;
-c g l r x ;
-h m s y ;
-n t z ;
-c h n ;
-b g m t ;
-a f l s z ;
-e k r y ;
-j q x ;</textarea>
-            </div>
-
-            <div class="form-group" style="margin-top: 12px; gap: 8px;">
-                <label>Dictionary Settings</label>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <button id="upload-btn" style="background-color: var(--panel-bg); border: 1px solid var(--border-color); color: var(--text-color);">Upload Custom List</button>
-                    <input type="file" id="dict-file-input" accept=".dict,.txt" style="display: none;" />
-                    <span id="uploaded-dict-name" style="font-size: 0.75rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px;">spreadthewordlist.dict</span>
+            <div class="section-title">Configuration</div>
+            
+            <div class="active-config-card">
+                <div class="active-config-item">
+                    <span style="color: var(--text-muted);">Dictionary:</span>
+                    <span class="active-config-value" id="active-dict-label">spreadthewordlist.dict</span>
                 </div>
+                <div class="active-config-item">
+                    <span style="color: var(--text-muted);">Min Score:</span>
+                    <span class="active-config-value" id="active-score-label">50</span>
+                </div>
+                <button id="open-settings-btn" style="margin-top: 6px; font-size: 0.8rem; padding: 6px 12px;">Configure Solver...</button>
             </div>
 
-            <div class="form-group" style="margin-top: 12px; margin-bottom: 12px;">
-                <label for="min-score-input">Minimum Word Score</label>
-                <input type="number" id="min-score-input" value="50" min="0" max="100" style="width: 80px; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); background-color: var(--bg-color); color: var(--text-color); font-size: 0.875rem;" />
-            </div>
-
-            <button id="init-btn">Initialize Solver</button>
-
-            <div class="section-title" style="margin-top: 10px;">Word Slots</div>
-            <div class="slots-list" id="slots-list">
+            <div class="section-title">Word Slots</div>
+            <div class="slots-list" id="slots-list" style="flex: 1; overflow-y: auto;">
                 <!-- Populated dynamically -->
             </div>
         </div>
@@ -402,6 +496,54 @@ j q x ;</textarea>
                 <div class="candidates-list" id="candidates-list">
                     <div class="no-candidates">Select a word slot to see options.</div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="modal-overlay" id="settings-modal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h2>Solver Settings</h2>
+                <button class="modal-close-btn" id="close-modal-x">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="slots-input">Slots Definition</label>
+                    <textarea id="slots-input" style="min-height: 150px;">a b c ;
+e f g h ;
+j k l m n ;
+q r s t ;
+x y z ;
+a e j ;
+b f k q ;
+c g l r x ;
+h m s y ;
+n t z ;
+c h n ;
+b g m t ;
+a f l s z ;
+e k r y ;
+j q x ;</textarea>
+                </div>
+
+                <div class="form-group" style="gap: 8px;">
+                    <label>Dictionary File</label>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <button id="upload-btn" style="background-color: var(--panel-bg); border: 1px solid var(--border-color); color: var(--text-color); padding: 8px 12px; font-size: 0.8rem;">Upload Custom List</button>
+                        <input type="file" id="dict-file-input" accept=".dict,.txt" style="display: none;" />
+                        <span id="uploaded-dict-name" style="font-size: 0.75rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 250px;">spreadthewordlist.dict</span>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="min-score-input">Minimum Word Score</label>
+                    <input type="number" id="min-score-input" value="50" min="0" max="100" style="width: 80px; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); background-color: var(--bg-color); color: var(--text-color); font-size: 0.875rem;" />
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="cancel-settings-btn" style="background-color: transparent; border: 1px solid var(--border-color); color: var(--text-muted);">Cancel</button>
+                <button id="init-btn">Initialize Solver</button>
             </div>
         </div>
     </div>
