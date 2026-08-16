@@ -17,6 +17,7 @@ let remainingOptions = [];
 let dictContents = "";
 let activeCandidates = [];
 let lastFillTime = 0;
+let initialCellValues = {};
 
 // Initialize background solver Web Worker
 const worker = new Worker("solver-worker.js", { type: "module" });
@@ -28,7 +29,8 @@ worker.onmessage = (e) => {
     switch (type) {
         case "INIT_SUCCESS":
             cellNames = payload.cellNames;
-            parseSlotsConfiguration(slotsInput.value);
+            slotConfigs = payload.slotConfigs;
+            initialCellValues = payload.initialCellValues;
             renderBoard();
             renderSlotsList();
             propagateConstraints();
@@ -114,24 +116,6 @@ function initializeSolver() {
     });
 }
 
-// Parse slots string for UI mapping
-function parseSlotsConfiguration(slotsDef) {
-    const lines = slotsDef.includes(';') ? slotsDef.split(';') : slotsDef.split('\n');
-    slotConfigs = [];
-    let id = 0;
-    
-    for (const line of lines) {
-        const cells = line.replace(/;/g, '').trim().split(/\s+/).filter(x => x.length > 0);
-        if (cells.length > 0) {
-            slotConfigs.push({
-                id,
-                cells,
-                length: cells.length
-            });
-            id++;
-        }
-    }
-}
 
 // Render cells on the board by word slots
 function renderBoard() {
@@ -165,6 +149,10 @@ function renderBoard() {
             input.dataset.cell = cellName;
             input.dataset.slotId = slot.id;
             input.dataset.charIdx = charIdx;
+            
+            if (initialCellValues[cellName]) {
+                input.value = initialCellValues[cellName];
+            }
             
             // Sync values across all cells sharing this name
             input.addEventListener("input", (e) => {

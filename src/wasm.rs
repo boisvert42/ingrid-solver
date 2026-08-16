@@ -6,7 +6,9 @@ use crate::arc_consistency::{establish_arc_consistency_for_static_grid, Eliminat
 use crate::backtracking_search::find_fill;
 use std::collections::HashMap;
 
-#[derive(serde::Serialize)]
+use serde_derive::Serialize;
+
+#[derive(Serialize)]
 struct JsSlotConfig {
     id: usize,
     cells: Vec<String>,
