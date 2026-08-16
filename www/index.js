@@ -6,6 +6,8 @@ let slotConfigs = [];
 let activeSlotId = null;
 let remainingOptions = [];
 let dictContents = "";
+let activeCandidates = [];
+let currentValidationTask = null;
 
 // DOM Elements
 const initBtn = document.getElementById("init-btn");
@@ -264,8 +266,8 @@ function selectSlot(slotId) {
     const boardRow = document.getElementById(`board-row-${slotId}`);
     if (boardRow) boardRow.classList.add("active");
     
-    // Render the options list
-    renderCandidates();
+    // Update active candidates list (which triggers rendering and validation)
+    updateActiveCandidates(remainingOptions[slotId] || []);
 }
 
 // Read current board fill state
@@ -309,7 +311,7 @@ function propagateConstraints() {
         
         // Update active candidates list
         if (activeSlotId !== null) {
-            renderCandidates();
+            updateActiveCandidates(remainingOptions[activeSlotId] || []);
         }
     } catch (e) {
         statusDiv.textContent = `Status: Solver error: ${e}`;
@@ -317,7 +319,7 @@ function propagateConstraints() {
     }
 }
 
-// Render candidates in the right panel
+// Render candidates based on activeCandidates array
 function renderCandidates() {
     candidatesList.innerHTML = "";
     
@@ -326,24 +328,84 @@ function renderCandidates() {
         return;
     }
     
-    const options = remainingOptions[activeSlotId] || [];
-    
-    if (options.length === 0) {
+    if (activeCandidates.length === 0) {
         candidatesList.innerHTML = `<div class="no-candidates" style="color: #ef4444;">No viable candidate words match the current board constraints!</div>`;
         return;
     }
     
-    options.forEach(word => {
+    activeCandidates.forEach(cand => {
         const item = document.createElement("div");
-        item.className = "candidate-item";
-        item.textContent = word;
+        item.className = `candidate-item ${cand.state}`;
+        item.textContent = cand.word;
         
         item.addEventListener("click", () => {
-            fillSlot(activeSlotId, word);
+            fillSlot(activeSlotId, cand.word);
         });
         
         candidatesList.appendChild(item);
     });
+}
+
+// Cancel current validation task and rebuild candidate list
+function updateActiveCandidates(options) {
+    if (currentValidationTask !== null) {
+        clearTimeout(currentValidationTask);
+        currentValidationTask = null;
+    }
+    
+    activeCandidates = options.map(word => ({ word, state: "pending" }));
+    renderCandidates();
+    
+    if (activeSlotId !== null && activeCandidates.length > 0) {
+        startBackgroundValidation(activeSlotId);
+    }
+}
+
+// Check each pending candidate one-by-one in the background
+function startBackgroundValidation(slotId) {
+    const fillJson = JSON.stringify(getBoardFill());
+    
+    function validateNext() {
+        if (slotId !== activeSlotId || !solver) {
+            currentValidationTask = null;
+            return;
+        }
+        
+        // Find the first pending candidate
+        const pendingIdx = activeCandidates.findIndex(cand => cand.state === "pending");
+        if (pendingIdx === -1) {
+            currentValidationTask = null;
+            return;
+        }
+        
+        const candidate = activeCandidates[pendingIdx];
+        const isFillable = solver.validate_candidate(slotId, candidate.word, fillJson);
+        
+        if (slotId !== activeSlotId) {
+            currentValidationTask = null;
+            return;
+        }
+        
+        if (isFillable) {
+            candidate.state = "valid";
+            // Sort valid ones first, keeping score order among valid/pending sublists
+            activeCandidates.sort((a, b) => {
+                if (a.state === "valid" && b.state !== "valid") return -1;
+                if (a.state !== "valid" && b.state === "valid") return 1;
+                return 0;
+            });
+        } else {
+            // Remove unfillable candidate
+            activeCandidates.splice(pendingIdx, 1);
+        }
+        
+        renderCandidates();
+        
+        // Schedule next check on next event loop tick
+        currentValidationTask = setTimeout(validateNext, 0);
+    }
+    
+    currentValidationTask = setTimeout(validateNext, 0);
 }
 
 // Check if a slot has any empty cells

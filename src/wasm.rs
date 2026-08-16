@@ -1,8 +1,9 @@
 use wasm_bindgen::prelude::*;
-use crate::grid_config::{Direction, SlotConfig, Crossing, GridConfig};
+use crate::grid_config::{Direction, SlotConfig, Crossing, GridConfig, OwnedGridConfig};
 use crate::types::GlyphId;
 use crate::word_list::{WordList, WordListSourceConfig, WordListSourceConfigProvider};
 use crate::arc_consistency::{establish_arc_consistency_for_static_grid, EliminationSet};
+use crate::backtracking_search::find_fill;
 use std::collections::HashMap;
 
 #[wasm_bindgen]
@@ -204,5 +205,60 @@ impl WasmSolver {
         }
         
         serde_json::to_string(&results).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn validate_candidate(&mut self, slot_id: usize, word: &str, fill_json: &str) -> bool {
+        let word_list = match &mut self.word_list {
+            Some(wl) => wl,
+            None => return false,
+        };
+        
+        let fill_map: HashMap<String, String> = match serde_json::from_str(fill_json) {
+            Ok(m) => m,
+            Err(_) => return false,
+        };
+            
+        let mut fill: Vec<Option<GlyphId>> = vec![None; self.cell_names.len()];
+        for (i, cell_name) in self.cell_names.iter().enumerate() {
+            if let Some(letter) = fill_map.get(cell_name) {
+                if let Some(c) = letter.chars().next() {
+                    fill[i] = Some(word_list.glyph_id_for_char(c));
+                }
+            }
+        }
+        
+        let slot_config = &self.slot_configs[slot_id];
+        if slot_config.length != word.chars().count() {
+            return false;
+        }
+        
+        for (char_idx, c) in word.chars().enumerate() {
+            if let Some(cell_idx) = slot_config.cell_indices.as_ref().map(|idx| idx[char_idx]) {
+                fill[cell_idx] = Some(word_list.glyph_id_for_char(c));
+            }
+        }
+        
+        let mut slot_options = crate::grid_config::generate_all_slot_options(
+            word_list,
+            &fill,
+            &self.slot_configs,
+            1,
+            self.min_score,
+        );
+        
+        crate::grid_config::sort_slot_options(word_list, &self.slot_configs, &mut slot_options);
+        
+        let config = GridConfig {
+            word_list,
+            fill: &fill,
+            slot_configs: &self.slot_configs,
+            slot_options: &slot_options,
+            width: 1,
+            height: 1,
+            crossing_count: self.crossing_count,
+            abort: None,
+        };
+        
+        find_fill(&config, None, None).is_ok()
     }
 }

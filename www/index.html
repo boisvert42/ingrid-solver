@@ -312,8 +312,20 @@
             transition: all 0.2s;
         }
 
+        .candidate-item.pending {
+            color: var(--text-muted);
+            opacity: 0.65;
+        }
+
+        .candidate-item.valid {
+            color: var(--text-color);
+            font-weight: 600;
+            border-color: #3b82f6;
+            background-color: rgba(59, 130, 246, 0.05);
+        }
+
         .candidate-item:hover {
-            border-color: var(--accent-color);
+            border-color: var(--accent-hover);
             background-color: var(--highlight-color);
         }
 
