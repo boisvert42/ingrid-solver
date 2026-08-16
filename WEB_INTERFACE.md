@@ -52,14 +52,13 @@ Navigate to the web interface in your browser:
 * **Auto-Advance Cell Navigation**: Typing a letter in a cell automatically synchronizes it across crossing slots, runs AC-3, and shifts focus to the next cell in the active slot row (stopping at the end of the slot).
 * **Custom Dictionary Upload**: Users can upload `.dict` or `.txt` word lists directly in the left panel. The browser reads the file locally and instantly re-initializes the solver.
 * **Minimum Word Score Filter**: The minimum score threshold can be customized via a numeric input. Updating the score automatically updates candidate availability and runs the solver without reload.
+* **Instant Selection (Mousedown binding)**: Word selection binds to `mousedown` instead of `click`, ensuring the select action triggers immediately when clicked, bypassing layout shift race conditions.
+* **Double-Click Safety Cooldown**: Autocomplete slot fills implement a 300ms safety cooldown, preventing accidental double-clicks from filling the next auto-focused slot row.
+* **Web Worker Thread Separation**: Spawns a dedicated Web Worker (`solver-worker.js`) to handle Wasm instantiation, dictionary loading, AC-3 runs, and background validation, keeping the main UI thread 100% idle and responsive.
 
 ---
 
 ## 4. What Remains to Do / Roadmap
 
-1. **Web Worker Integration**:
-   * Move the `WasmSolver` instantiations and `run_ac3` calls into a Web Worker.
-   * This prevents CPU-heavy dictionary filtering and constraint propagation loops from blocking the main UI thread (avoiding page lag).
-
-2. **Performance Optimization for Large Dictionaries**:
+1. **Performance Optimization for Large Dictionaries**:
    * Improve parsing speeds of large dictionary files (e.g., standard dictionaries with >100,000 words) inside the `load_dictionary` function.

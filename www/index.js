@@ -1,14 +1,3 @@
-import init, { WasmSolver } from "../pkg/ingrid_core.js";
-
-let solver = null;
-let cellNames = [];
-let slotConfigs = [];
-let activeSlotId = null;
-let remainingOptions = [];
-let dictContents = "";
-let activeCandidates = [];
-let currentValidationTask = null;
-
 // DOM Elements
 const initBtn = document.getElementById("init-btn");
 const statusDiv = document.getElementById("status");
@@ -21,18 +10,81 @@ const dictFileInput = document.getElementById("dict-file-input");
 const uploadedDictName = document.getElementById("uploaded-dict-name");
 const minScoreInput = document.getElementById("min-score-input");
 
-// Initialize Wasm module
+let cellNames = [];
+let slotConfigs = [];
+let activeSlotId = null;
+let remainingOptions = [];
+let dictContents = "";
+let activeCandidates = [];
+let lastFillTime = 0;
+
+// Initialize background solver Web Worker
+const worker = new Worker("solver-worker.js", { type: "module" });
+
+// Handle messages from Solver Worker
+worker.onmessage = (e) => {
+    const { type, payload } = e.data;
+    
+    switch (type) {
+        case "INIT_SUCCESS":
+            cellNames = payload.cellNames;
+            parseSlotsConfiguration(slotsInput.value);
+            renderBoard();
+            renderSlotsList();
+            propagateConstraints();
+            statusDiv.textContent = "Status: Solver Initialized.";
+            break;
+            
+        case "AC3_SUCCESS":
+            remainingOptions = payload.remainingOptions;
+            
+            // Update slot badges with option counts
+            slotConfigs.forEach(slot => {
+                const count = remainingOptions[slot.id].length;
+                const badge = document.getElementById(`slot-len-badge-${slot.id}`);
+                if (badge) {
+                    badge.textContent = `${count} options`;
+                    if (count === 0) {
+                        badge.style.backgroundColor = "#ef4444"; // red alert
+                        badge.style.color = "white";
+                    } else if (count === 1) {
+                        badge.style.backgroundColor = "#10b981"; // green fixed
+                        badge.style.color = "white";
+                    } else {
+                        badge.style.backgroundColor = "";
+                        badge.style.color = "";
+                    }
+                }
+            });
+            
+            // Update active candidates list
+            if (activeSlotId !== null) {
+                updateActiveCandidates(remainingOptions[activeSlotId] || []);
+            }
+            break;
+            
+        case "VALIDATION_RESULT":
+            const { word, isFillable, slotId } = payload;
+            if (slotId !== activeSlotId) return;
+            handleValidationResult(word, isFillable);
+            break;
+            
+        case "ERROR":
+            statusDiv.textContent = `Status: Solver error: ${payload}`;
+            console.error(payload);
+            break;
+    }
+};
+
+// Initialize Wasm module by downloading default word list
 async function run() {
     try {
-        statusDiv.textContent = "Status: Downloading dictionary...";
+        statusDiv.textContent = "Status: Downloading default dictionary...";
         const response = await fetch("../resources/spreadthewordlist.dict");
         if (!response.ok) {
             throw new Error(`Failed to load dictionary: ${response.statusText}`);
         }
         dictContents = await response.text();
-        
-        statusDiv.textContent = "Status: Loading WebAssembly...";
-        await init();
         
         statusDiv.textContent = "Status: Ready! Click 'Initialize Solver'.";
         initBtn.disabled = false;
@@ -45,46 +97,21 @@ async function run() {
     }
 }
 
-// Initialize Solver instance
+// Initialize Solver instance in worker thread
 function initializeSolver() {
     if (!dictContents) {
         statusDiv.textContent = "Status: Dictionary not loaded yet.";
         return;
     }
     
-    try {
-        statusDiv.textContent = "Status: Initializing solver...";
-        
-        const slotsDef = slotsInput.value;
-        
-        // 1. Create solver instance
-        solver = new WasmSolver(slotsDef);
-        
-        // 2. Configure min score
-        const minScore = parseInt(minScoreInput.value) || 0;
-        solver.set_min_score(minScore);
-        
-        // 3. Load dictionary
-        solver.load_dictionary(dictContents);
-        
-        // 4. Get cell names
-        cellNames = JSON.parse(solver.get_cell_names());
-        
-        // 5. Parse slots configuration to display
-        parseSlotsConfiguration(slotsDef);
-        
-        // 6. Render Board & Slots List
-        renderBoard();
-        renderSlotsList();
-        
-        // 7. Propagate initial constraints
-        propagateConstraints();
-        
-        statusDiv.textContent = "Status: Solver Initialized.";
-    } catch (e) {
-        statusDiv.textContent = `Status: Error: ${e}`;
-        console.error(e);
-    }
+    statusDiv.textContent = "Status: Initializing solver in background...";
+    const slotsDef = slotsInput.value;
+    const minScore = parseInt(minScoreInput.value) || 0;
+    
+    worker.postMessage({
+        type: "INIT",
+        payload: { slotsDef, minScore, dictContents }
+    });
 }
 
 // Parse slots string for UI mapping
@@ -271,7 +298,7 @@ function selectSlot(slotId) {
     const boardRow = document.getElementById(`board-row-${slotId}`);
     if (boardRow) boardRow.classList.add("active");
     
-    // Update active candidates list (which triggers rendering and validation)
+    // Update active candidates list (triggers background worker validation)
     updateActiveCandidates(remainingOptions[slotId] || []);
 }
 
@@ -288,40 +315,13 @@ function getBoardFill() {
     return fill;
 }
 
-// Run AC-3 constraint propagation
+// Run AC-3 constraint propagation in worker thread
 function propagateConstraints() {
-    if (!solver) return;
-    
-    try {
-        const fill = getBoardFill();
-        const resultsJson = solver.run_ac3(JSON.stringify(fill));
-        remainingOptions = JSON.parse(resultsJson);
-        
-        // Update slot badges with option counts
-        slotConfigs.forEach(slot => {
-            const count = remainingOptions[slot.id].length;
-            const badge = document.getElementById(`slot-len-badge-${slot.id}`);
-            badge.textContent = `${count} options`;
-            if (count === 0) {
-                badge.style.backgroundColor = "#ef4444"; // red alert
-                badge.style.color = "white";
-            } else if (count === 1) {
-                badge.style.backgroundColor = "#10b981"; // green fixed
-                badge.style.color = "white";
-            } else {
-                badge.style.backgroundColor = "";
-                badge.style.color = "";
-            }
-        });
-        
-        // Update active candidates list
-        if (activeSlotId !== null) {
-            updateActiveCandidates(remainingOptions[activeSlotId] || []);
-        }
-    } catch (e) {
-        statusDiv.textContent = `Status: Solver error: ${e}`;
-        console.error(e);
-    }
+    const fill = getBoardFill();
+    worker.postMessage({
+        type: "RUN_AC3",
+        payload: { fillJson: JSON.stringify(fill) }
+    });
 }
 
 // Render candidates based on activeCandidates array
@@ -343,7 +343,7 @@ function renderCandidates() {
         item.className = `candidate-item ${cand.state}`;
         item.textContent = cand.word;
         
-        item.addEventListener("click", () => {
+        item.addEventListener("mousedown", () => {
             fillSlot(activeSlotId, cand.word);
         });
         
@@ -354,76 +354,54 @@ function renderCandidates() {
 
 // Cancel current validation task and rebuild candidate list
 function updateActiveCandidates(options) {
-    if (currentValidationTask !== null) {
-        clearTimeout(currentValidationTask);
-        currentValidationTask = null;
-    }
+    worker.postMessage({ type: "STOP_VALIDATION" });
     
     activeCandidates = options.map(word => ({ word, state: "pending", element: null }));
     renderCandidates();
     
     if (activeSlotId !== null && activeCandidates.length > 0) {
-        startBackgroundValidation(activeSlotId);
+        worker.postMessage({
+            type: "START_VALIDATION",
+            payload: {
+                slotId: activeSlotId,
+                options: options,
+                fillJson: JSON.stringify(getBoardFill())
+            }
+        });
     }
 }
 
-// Check each pending candidate one-by-one in the background
-function startBackgroundValidation(slotId) {
-    const fillJson = JSON.stringify(getBoardFill());
+// Handle validation results returned by the worker
+function handleValidationResult(word, isFillable) {
+    const candIdx = activeCandidates.findIndex(cand => cand.word === word);
+    if (candIdx === -1) return;
     
-    function validateNext() {
-        if (slotId !== activeSlotId || !solver) {
-            currentValidationTask = null;
-            return;
+    const candidate = activeCandidates[candIdx];
+    if (isFillable) {
+        candidate.state = "valid";
+        if (candidate.element) {
+            candidate.element.className = "candidate-item valid";
+            candidatesList.insertBefore(candidate.element, candidatesList.firstChild);
         }
         
-        // Find the first pending candidate
-        const pendingIdx = activeCandidates.findIndex(cand => cand.state === "pending");
-        if (pendingIdx === -1) {
-            currentValidationTask = null;
-            return;
+        // Sort valid ones first in our data array
+        activeCandidates.sort((a, b) => {
+            if (a.state === "valid" && b.state !== "valid") return -1;
+            if (a.state !== "valid" && b.state === "valid") return 1;
+            return 0;
+        });
+    } else {
+        // Remove element from DOM
+        if (candidate.element) {
+            candidate.element.remove();
         }
+        // Remove candidate from array
+        activeCandidates.splice(candIdx, 1);
         
-        const candidate = activeCandidates[pendingIdx];
-        const isFillable = solver.validate_candidate(slotId, candidate.word, fillJson);
-        
-        if (slotId !== activeSlotId) {
-            currentValidationTask = null;
-            return;
+        if (activeCandidates.length === 0) {
+            candidatesList.innerHTML = `<div class="no-candidates" style="color: #ef4444;">No viable candidate words match the current board constraints!</div>`;
         }
-        
-        if (isFillable) {
-            candidate.state = "valid";
-            if (candidate.element) {
-                candidate.element.className = "candidate-item valid";
-                // Move element to the top of the container
-                candidatesList.insertBefore(candidate.element, candidatesList.firstChild);
-            }
-            
-            // Sort valid ones first in our data array
-            activeCandidates.sort((a, b) => {
-                if (a.state === "valid" && b.state !== "valid") return -1;
-                if (a.state !== "valid" && b.state === "valid") return 1;
-                return 0;
-            });
-        } else {
-            // Remove element from DOM
-            if (candidate.element) {
-                candidate.element.remove();
-            }
-            // Remove candidate from array
-            activeCandidates.splice(pendingIdx, 1);
-            
-            if (activeCandidates.length === 0) {
-                candidatesList.innerHTML = `<div class="no-candidates" style="color: #ef4444;">No viable candidate words match the current board constraints!</div>`;
-            }
-        }
-        
-        // Schedule next check on next event loop tick
-        currentValidationTask = setTimeout(validateNext, 0);
     }
-    
-    currentValidationTask = setTimeout(validateNext, 0);
 }
 
 // Check if a slot has any empty cells
@@ -467,6 +445,12 @@ function selectNextConstrainedSlot() {
 
 // Autofill a slot with a word selection
 function fillSlot(slotId, word) {
+    const now = Date.now();
+    if (now - lastFillTime < 300) {
+        return; // Ignore double clicks/taps within 300ms
+    }
+    lastFillTime = now;
+
     const slot = slotConfigs[slotId];
     for (let i = 0; i < slot.cells.length; i++) {
         const cellName = slot.cells[i];
@@ -509,13 +493,10 @@ dictFileInput.addEventListener("change", (e) => {
 });
 
 minScoreInput.addEventListener("change", (e) => {
-    if (solver) {
-        const val = parseInt(e.target.value) || 0;
-        solver.set_min_score(val);
-        statusDiv.textContent = `Status: Min score updated to ${val}. Re-running constraints...`;
-        propagateConstraints();
-        statusDiv.textContent = `Status: Min score updated.`;
-    }
+    const val = parseInt(e.target.value) || 0;
+    worker.postMessage({ type: "UPDATE_MIN_SCORE", payload: { minScore: val } });
+    statusDiv.textContent = `Status: Min score updated to ${val}. Re-running constraints...`;
+    propagateConstraints();
 });
 
 // Start
