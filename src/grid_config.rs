@@ -54,9 +54,10 @@ pub struct SlotConfig {
     pub start_cell: GridCoord,
     pub direction: Direction,
     pub length: usize,
-    pub crossings: Vec<Option<Crossing>>,
+    pub crossings: Vec<Vec<Crossing>>,
     pub min_score_override: Option<u16>,
     pub filter_pattern: Option<Regex>,
+    pub cell_indices: Option<Vec<usize>>,
 }
 
 impl SlotConfig {
@@ -74,10 +75,14 @@ impl SlotConfig {
     /// Generate the indices of this slot's cells in a flat fill array like `GridConfig.fill`.
     #[must_use]
     pub fn cell_fill_indices(&self, grid_width: usize) -> Vec<usize> {
-        self.cell_coords()
-            .iter()
-            .map(|loc| loc.0 + loc.1 * grid_width)
-            .collect()
+        if let Some(ref indices) = self.cell_indices {
+            indices.clone()
+        } else {
+            self.cell_coords()
+                .iter()
+                .map(|loc| loc.0 + loc.1 * grid_width)
+                .collect()
+        }
     }
 
     /// Get the values of this slot's cells in a flat fill array like `GridConfig.fill`.
@@ -161,7 +166,7 @@ pub struct OwnedGridConfig {
 impl OwnedGridConfig {
     #[allow(dead_code)]
     #[must_use]
-    pub fn to_config_ref(&self) -> GridConfig {
+    pub fn to_config_ref(&self) -> GridConfig<'_> {
         GridConfig {
             word_list: &self.word_list,
             fill: &self.fill,
@@ -211,14 +216,17 @@ pub fn sort_slot_options(
                 .crossings
                 .iter()
                 .zip(&word.glyphs)
-                .map(|(crossing, &glyph)| match crossing {
-                    Some(crossing) => {
-                        let crossing_counts_by_cell =
-                            &glyph_counts_by_cell_by_slot[crossing.other_slot_id];
+                .map(|(crossings, &glyph)| {
+                    if crossings.is_empty() {
+                        0.0
+                    } else {
+                        crossings.iter().map(|crossing| {
+                            let crossing_counts_by_cell =
+                                &glyph_counts_by_cell_by_slot[crossing.other_slot_id];
 
-                        (crossing_counts_by_cell[crossing.other_slot_cell][glyph] as f32).log10()
+                            (crossing_counts_by_cell[crossing.other_slot_cell][glyph] as f32).log10()
+                        }).sum::<f32>() / (crossings.len() as f32)
                     }
-                    None => 0.0,
                 })
                 .fold(0.0, |a, b| a + b)
                 / (slot_config.length as f32);
@@ -374,7 +382,7 @@ pub fn generate_slot_configs(entries: &[SlotSpec]) -> (Vec<SlotConfig>, usize) {
 
     // Now we can build the actual slot configs.
     for (entry_idx, entry) in entries.iter().enumerate() {
-        let crossings: Vec<Option<Crossing>> = entry
+        let crossings: Vec<Vec<Crossing>> = entry
             .cell_coords()
             .iter()
             .map(|&loc| {
@@ -385,7 +393,7 @@ pub fn generate_slot_configs(entries: &[SlotSpec]) -> (Vec<SlotConfig>, usize) {
                     .collect();
 
                 if crossing_idxs.is_empty() {
-                    None
+                    vec![]
                 } else if crossing_idxs.len() > 1 {
                     panic!("More than two entries crossing in cell?");
                 } else {
@@ -403,11 +411,11 @@ pub fn generate_slot_configs(entries: &[SlotSpec]) -> (Vec<SlotConfig>, usize) {
                         constraint_id_cache.len() - 1
                     };
 
-                    Some(Crossing {
+                    vec![Crossing {
                         other_slot_id,
                         other_slot_cell,
                         crossing_id,
-                    })
+                    }]
                 }
             })
             .collect();
@@ -420,6 +428,7 @@ pub fn generate_slot_configs(entries: &[SlotSpec]) -> (Vec<SlotConfig>, usize) {
             crossings,
             min_score_override: None,
             filter_pattern: None,
+            cell_indices: None,
         });
     }
 
@@ -740,5 +749,189 @@ mod serde_tests {
                 length: 12,
             }
         );
+    }
+}
+
+#[cfg(test)]
+mod custom_topology_tests {
+    use crate::grid_config::{Direction, SlotConfig, Crossing, OwnedGridConfig};
+    use crate::types::GlyphId;
+    use crate::word_list::{WordList, WordListSourceConfig, WordListSourceConfigProvider};
+    use crate::backtracking_search::find_fill;
+    use std::collections::HashMap;
+
+    fn parse_slots(input: &str) -> (Vec<SlotConfig>, Vec<Option<String>>, usize) {
+        let lines: Vec<&str> = if input.contains(';') {
+            input.split(';').collect()
+        } else {
+            input.lines().collect()
+        };
+        
+        let mut slots_cell_names: Vec<Vec<String>> = vec![];
+        for line in lines {
+            let names: Vec<String> = line.split_whitespace()
+                .map(|s| s.to_string())
+                .filter(|s| !s.is_empty() && s != ";")
+                .collect();
+            if !names.is_empty() {
+                slots_cell_names.push(names);
+            }
+        }
+        
+        let mut unique_cells = vec![];
+        for slot in &slots_cell_names {
+            for cell in slot {
+                if !unique_cells.contains(cell) {
+                    unique_cells.push(cell.clone());
+                }
+            }
+        }
+        
+        let fill = vec![None; unique_cells.len()];
+        
+        let mut cell_occurrences: HashMap<String, Vec<(usize, usize)>> = HashMap::new();
+        for (slot_id, slot) in slots_cell_names.iter().enumerate() {
+            for (cell_idx, cell) in slot.iter().enumerate() {
+                cell_occurrences.entry(cell.clone()).or_insert_with(Vec::new).push((slot_id, cell_idx));
+            }
+        }
+        
+        let mut slot_configs: Vec<SlotConfig> = vec![];
+        let mut crossings_by_slot: Vec<Vec<Vec<Crossing>>> = vec![vec![]; slots_cell_names.len()];
+        
+        for (slot_id, slot) in slots_cell_names.iter().enumerate() {
+            crossings_by_slot[slot_id] = vec![vec![]; slot.len()];
+        }
+        
+        let mut crossing_id_counter = 0;
+        
+        for (_cell_name, occurrences) in &cell_occurrences {
+            if occurrences.len() > 1 {
+                for i in 0..occurrences.len() {
+                    for j in (i + 1)..occurrences.len() {
+                        let (s1, idx1) = occurrences[i];
+                        let (s2, idx2) = occurrences[j];
+                        let crossing_id = crossing_id_counter;
+                        crossing_id_counter += 1;
+                        
+                        crossings_by_slot[s1][idx1].push(Crossing {
+                            other_slot_id: s2,
+                            other_slot_cell: idx2,
+                            crossing_id,
+                        });
+                        
+                        crossings_by_slot[s2][idx2].push(Crossing {
+                            other_slot_id: s1,
+                            other_slot_cell: idx1,
+                            crossing_id,
+                        });
+                    }
+                }
+            }
+        }
+        
+        for (slot_id, slot) in slots_cell_names.iter().enumerate() {
+            let cell_indices: Vec<usize> = slot.iter().map(|name| {
+                unique_cells.iter().position(|c| c == name).unwrap()
+            }).collect();
+            
+            slot_configs.push(SlotConfig {
+                id: slot_id,
+                start_cell: (0, 0),
+                direction: Direction::Across,
+                length: slot.len(),
+                crossings: crossings_by_slot[slot_id].clone(),
+                min_score_override: None,
+                filter_pattern: None,
+                cell_indices: Some(cell_indices),
+            });
+        }
+        
+        (slot_configs, fill, crossing_id_counter)
+    }
+
+    #[test]
+    fn test_custom_hexagonal_fill() {
+        let slots_input = "
+            a b c ;
+            e f g h ;
+            j k l m n ;
+            q r s t ;
+            x y z ;
+            a e j ;
+            b f k q ;
+            c g l r x ;
+            h m s y ;
+            n t z ;
+            c h n ;
+            b g m t ;
+            a f l s z ;
+            e k r y ;
+            j q x ;
+        ";
+
+        let (slot_configs, fill_names, crossing_count) = parse_slots(slots_input);
+        
+        let words = vec![
+            ("one".to_string(), 100),
+            ("baas".to_string(), 100),
+            ("sorns".to_string(), 100),
+            ("idea".to_string(), 100),
+            ("sed".to_string(), 100),
+            ("obs".to_string(), 100),
+            ("naoi".to_string(), 100),
+            ("eards".to_string(), 100),
+            ("snee".to_string(), 100),
+            ("sad".to_string(), 100),
+            ("ess".to_string(), 100),
+            ("nana".to_string(), 100),
+            ("oared".to_string(), 100),
+            ("bode".to_string(), 100),
+            ("sis".to_string(), 100),
+        ];
+
+        let mut word_list = WordList::new(
+            vec![WordListSourceConfig {
+                id: "0".into(),
+                enabled: true,
+                provider: WordListSourceConfigProvider::Memory { words },
+                normalization: None,
+            }],
+            None,
+            Some(5),
+            None,
+        );
+
+        let fill: Vec<Option<GlyphId>> = vec![None; fill_names.len()];
+        let mut slot_options = crate::grid_config::generate_all_slot_options(
+            &mut word_list,
+            &fill,
+            &slot_configs,
+            1, // width (dummy)
+            0, // min score
+        );
+
+        crate::grid_config::sort_slot_options(&word_list, &slot_configs, &mut slot_options);
+
+        let owned_config = OwnedGridConfig {
+            word_list,
+            fill,
+            slot_configs,
+            slot_options,
+            width: 1, // width (dummy)
+            height: 1, // height (dummy)
+            crossing_count,
+            abort: None,
+        };
+
+        let result = find_fill(&owned_config.to_config_ref(), None, None)
+            .expect("Failed to solve hexagonal crossword puzzle");
+
+        let solved_words: Vec<String> = result.choices.iter().map(|choice| {
+            let slot_len = owned_config.slot_configs[choice.slot_id].length;
+            owned_config.word_list.words[slot_len][choice.word_id].normalized_string.clone()
+        }).collect();
+
+        assert_eq!(solved_words.len(), 15);
     }
 }

@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use crate::arc_consistency::{
     establish_arc_consistency, ArcConsistencyAdapter, ArcConsistencyFailure, EliminationSet,
 };
-use crate::grid_config::{Choice, Crossing, GridConfig, SlotId};
+use crate::grid_config::{Choice, GridConfig, SlotId};
 use crate::types::WordId;
 use crate::util::{build_glyph_counts_by_cell, GlyphCountsByCell};
 
@@ -217,19 +217,17 @@ fn calculate_slot_weight(
     config.slot_configs[slot_id]
         .crossings
         .iter()
-        .map(|crossing| match crossing {
-            Some(Crossing {
-                other_slot_id,
-                crossing_id,
-                ..
-            }) => {
-                if slots[*other_slot_id].remaining_option_count > 1 {
-                    crossing_weights[*crossing_id]
-                } else {
-                    0.0
-                }
-            }
-            None => 0.0,
+        .map(|crossings| {
+            crossings
+                .iter()
+                .map(|crossing| {
+                    if slots[crossing.other_slot_id].remaining_option_count > 1 {
+                        crossing_weights[crossing.crossing_id]
+                    } else {
+                        0.0
+                    }
+                })
+                .sum::<f32>()
         })
         .sum()
 }
