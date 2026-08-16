@@ -679,6 +679,7 @@ pub struct ParsedSlots {
     pub slot_configs: Vec<SlotConfig>,
     pub crossing_count: usize,
     pub cell_names: Vec<String>,
+    pub cell_values: HashMap<String, char>,
 }
 
 /// Parse a custom slots string definition.
@@ -703,18 +704,35 @@ pub fn parse_slots_string(slots_string: &str) -> ParsedSlots {
     } else {
         clean_slots_string.lines().collect()
     };
-    
+
     let mut slots_cell_names: Vec<Vec<String>> = vec![];
+    let mut cell_values: HashMap<String, char> = HashMap::new();
     for line in lines {
-        let names: Vec<String> = line.split_whitespace()
+        let mut names: Vec<String> = line.split_whitespace()
             .map(std::string::ToString::to_string)
             .filter(|s| !s.is_empty() && s != ";")
             .collect();
         if !names.is_empty() {
-            slots_cell_names.push(names);
+            let mut prefilled_word = None;
+            if let Some(last_name) = names.last() {
+                if last_name.starts_with('=') {
+                    prefilled_word = Some(last_name[1..].to_string());
+                }
+            }
+            if let Some(word) = prefilled_word {
+                names.pop(); // Remove the "=WORD" token from the cell names
+                for (idx, c) in word.chars().enumerate() {
+                    if idx < names.len() && c != '.' && c != '?' {
+                        cell_values.insert(names[idx].clone(), c);
+                    }
+                }
+            }
+            if !names.is_empty() {
+                slots_cell_names.push(names);
+            }
         }
     }
-    
+
     let mut cell_names = vec![];
     for slot in &slots_cell_names {
         for cell in slot {
@@ -723,23 +741,23 @@ pub fn parse_slots_string(slots_string: &str) -> ParsedSlots {
             }
         }
     }
-    
+
     let mut cell_occurrences: HashMap<String, Vec<(usize, usize)>> = HashMap::new();
     for (slot_id, slot) in slots_cell_names.iter().enumerate() {
         for (cell_idx, cell) in slot.iter().enumerate() {
             cell_occurrences.entry(cell.clone()).or_default().push((slot_id, cell_idx));
         }
     }
-    
+
     let mut slot_configs: Vec<SlotConfig> = vec![];
     let mut crossings_by_slot: Vec<Vec<Vec<Crossing>>> = vec![vec![]; slots_cell_names.len()];
-    
+
     for (slot_id, slot) in slots_cell_names.iter().enumerate() {
         crossings_by_slot[slot_id] = vec![vec![]; slot.len()];
     }
-    
+
     let mut crossing_id_counter = 0;
-    
+
     for occurrences in cell_occurrences.values() {
         if occurrences.len() > 1 {
             for i in 0..occurrences.len() {
@@ -748,13 +766,13 @@ pub fn parse_slots_string(slots_string: &str) -> ParsedSlots {
                     let (s2, idx2) = occurrences[j];
                     let crossing_id = crossing_id_counter;
                     crossing_id_counter += 1;
-                    
+
                     crossings_by_slot[s1][idx1].push(Crossing {
                         other_slot_id: s2,
                         other_slot_cell: idx2,
                         crossing_id,
                     });
-                    
+
                     crossings_by_slot[s2][idx2].push(Crossing {
                         other_slot_id: s1,
                         other_slot_cell: idx1,
@@ -764,12 +782,12 @@ pub fn parse_slots_string(slots_string: &str) -> ParsedSlots {
             }
         }
     }
-    
+
     for (slot_id, slot) in slots_cell_names.iter().enumerate() {
         let cell_indices: Vec<usize> = slot.iter().map(|name| {
             cell_names.iter().position(|c| c == name).unwrap()
         }).collect();
-        
+
         slot_configs.push(SlotConfig {
             id: slot_id,
             start_cell: (0, 0),
@@ -781,11 +799,12 @@ pub fn parse_slots_string(slots_string: &str) -> ParsedSlots {
             cell_indices: Some(cell_indices),
         });
     }
-    
+
     ParsedSlots {
         slot_configs,
         crossing_count: crossing_id_counter,
         cell_names,
+        cell_values,
     }
 }
 
@@ -798,8 +817,14 @@ pub fn generate_grid_config_from_slots_string(
     min_score: u16,
 ) -> OwnedGridConfig {
     let parsed = parse_slots_string(slots_string);
-    let fill = vec![None; parsed.cell_names.len()];
-    
+    let mut fill = vec![None; parsed.cell_names.len()];
+
+    for (cell_name, &ch) in &parsed.cell_values {
+        if let Some(cell_idx) = parsed.cell_names.iter().position(|c| c == cell_name) {
+            fill[cell_idx] = Some(word_list.glyph_id_for_char(ch.to_lowercase().next().unwrap()));
+        }
+    }
+
     let mut slot_options = generate_all_slot_options(
         &mut word_list,
         &fill,
@@ -807,9 +832,9 @@ pub fn generate_grid_config_from_slots_string(
         1,
         min_score,
     );
-    
+
     sort_slot_options(&word_list, &parsed.slot_configs, &mut slot_options);
-    
+
     OwnedGridConfig {
         word_list,
         fill,
@@ -1000,5 +1025,43 @@ mod custom_topology_tests {
         assert_eq!(owned_config.slot_configs.len(), 2);
         assert_eq!(owned_config.slot_configs[0].length, 3);
         assert_eq!(owned_config.slot_configs[1].length, 3);
+    }
+
+    #[test]
+    fn test_custom_slots_prefilled() {
+        let slots_input = "
+            a b c d =MARK ;
+            c b a ;
+        ";
+
+        let words = vec![
+            ("mark".to_string(), 100),
+            ("kef".to_string(), 100),
+            ("ram".to_string(), 100),
+            ("spa".to_string(), 100),
+        ];
+
+        let word_list = WordList::new(
+            vec![WordListSourceConfig {
+                id: "0".into(),
+                enabled: true,
+                provider: WordListSourceConfigProvider::Memory { words },
+                normalization: None,
+            }],
+            None,
+            Some(4),
+            None,
+        );
+
+        let owned_config = generate_grid_config_from_slots_string(word_list, slots_input, 0);
+
+        assert_eq!(owned_config.slot_configs[0].length, 4);
+
+        let a_idx = owned_config.slot_configs[0].cell_indices.as_ref().unwrap()[0];
+        let d_idx = owned_config.slot_configs[0].cell_indices.as_ref().unwrap()[3];
+
+        let word_list_ref = &owned_config.word_list;
+        assert_eq!(owned_config.fill[a_idx], Some(word_list_ref.glyph_id_by_char.get(&'m').copied().unwrap()));
+        assert_eq!(owned_config.fill[d_idx], Some(word_list_ref.glyph_id_by_char.get(&'k').copied().unwrap()));
     }
 }
