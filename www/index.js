@@ -311,6 +311,45 @@ function renderCandidates() {
     });
 }
 
+// Check if a slot has any empty cells
+function isSlotIncomplete(slotId) {
+    const slot = slotConfigs[slotId];
+    return slot.cells.some(cellName => {
+        const inp = document.querySelector(`input[data-slot-id="${slotId}"][data-cell="${cellName}"]`);
+        return !inp || inp.value === "";
+    });
+}
+
+// Find and select the incomplete slot with the fewest remaining options
+function selectNextConstrainedSlot() {
+    let bestSlotId = null;
+    let minOptions = Infinity;
+    
+    slotConfigs.forEach(slot => {
+        if (isSlotIncomplete(slot.id)) {
+            const count = remainingOptions[slot.id].length;
+            if (count > 0 && count < minOptions) {
+                minOptions = count;
+                bestSlotId = slot.id;
+            }
+        }
+    });
+    
+    if (bestSlotId !== null) {
+        selectSlot(bestSlotId);
+        
+        // Focus the first empty input in the newly selected slot row
+        const slot = slotConfigs[bestSlotId];
+        for (let cellName of slot.cells) {
+            const inp = document.querySelector(`input[data-slot-id="${bestSlotId}"][data-cell="${cellName}"]`);
+            if (inp && inp.value === "") {
+                inp.focus();
+                break;
+            }
+        }
+    }
+}
+
 // Autofill a slot with a word selection
 function fillSlot(slotId, word) {
     const slot = slotConfigs[slotId];
@@ -324,6 +363,9 @@ function fillSlot(slotId, word) {
     
     // Propagate constraint changes
     propagateConstraints();
+    
+    // Jump to the most constrained incomplete slot
+    selectNextConstrainedSlot();
 }
 
 // Event Listeners
