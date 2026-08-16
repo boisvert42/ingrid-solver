@@ -1,5 +1,5 @@
 use wasm_bindgen::prelude::*;
-use crate::grid_config::{Direction, SlotConfig, Crossing, GridConfig};
+use crate::grid_config::{SlotConfig, GridConfig};
 use crate::types::GlyphId;
 use crate::word_list::{WordList, WordListSourceConfig, WordListSourceConfigProvider};
 use crate::arc_consistency::{establish_arc_consistency_for_static_grid, EliminationSet};
@@ -19,95 +19,13 @@ pub struct WasmSolver {
 impl WasmSolver {
     #[wasm_bindgen(constructor)]
     pub fn new(slots_string: &str) -> Result<WasmSolver, JsValue> {
-        let lines: Vec<&str> = if slots_string.contains(';') {
-            slots_string.split(';').collect()
-        } else {
-            slots_string.lines().collect()
-        };
-        
-        let mut slots_cell_names: Vec<Vec<String>> = vec![];
-        for line in lines {
-            let names: Vec<String> = line.split_whitespace()
-                .map(std::string::ToString::to_string)
-                .filter(|s| !s.is_empty() && s != ";")
-                .collect();
-            if !names.is_empty() {
-                slots_cell_names.push(names);
-            }
-        }
-        
-        let mut cell_names = vec![];
-        for slot in &slots_cell_names {
-            for cell in slot {
-                if !cell_names.contains(cell) {
-                    cell_names.push(cell.clone());
-                }
-            }
-        }
-        
-        let mut cell_occurrences: HashMap<String, Vec<(usize, usize)>> = HashMap::new();
-        for (slot_id, slot) in slots_cell_names.iter().enumerate() {
-            for (cell_idx, cell) in slot.iter().enumerate() {
-                cell_occurrences.entry(cell.clone()).or_default().push((slot_id, cell_idx));
-            }
-        }
-        
-        let mut slot_configs: Vec<SlotConfig> = vec![];
-        let mut crossings_by_slot: Vec<Vec<Vec<Crossing>>> = vec![vec![]; slots_cell_names.len()];
-        
-        for (slot_id, slot) in slots_cell_names.iter().enumerate() {
-            crossings_by_slot[slot_id] = vec![vec![]; slot.len()];
-        }
-        
-        let mut crossing_id_counter = 0;
-        
-        for occurrences in cell_occurrences.values() {
-            if occurrences.len() > 1 {
-                for i in 0..occurrences.len() {
-                    for j in (i + 1)..occurrences.len() {
-                        let (s1, idx1) = occurrences[i];
-                        let (s2, idx2) = occurrences[j];
-                        let crossing_id = crossing_id_counter;
-                        crossing_id_counter += 1;
-                        
-                        crossings_by_slot[s1][idx1].push(Crossing {
-                            other_slot_id: s2,
-                            other_slot_cell: idx2,
-                            crossing_id,
-                        });
-                        
-                        crossings_by_slot[s2][idx2].push(Crossing {
-                            other_slot_id: s1,
-                            other_slot_cell: idx1,
-                            crossing_id,
-                        });
-                    }
-                }
-            }
-        }
-        
-        for (slot_id, slot) in slots_cell_names.iter().enumerate() {
-            let cell_indices: Vec<usize> = slot.iter().map(|name| {
-                cell_names.iter().position(|c| c == name).unwrap()
-            }).collect();
-            
-            slot_configs.push(SlotConfig {
-                id: slot_id,
-                start_cell: (0, 0),
-                direction: Direction::Across,
-                length: slot.len(),
-                crossings: crossings_by_slot[slot_id].clone(),
-                min_score_override: None,
-                filter_pattern: None,
-                cell_indices: Some(cell_indices),
-            });
-        }
+        let parsed = crate::grid_config::parse_slots_string(slots_string);
         
         Ok(WasmSolver {
             word_list: None,
-            slot_configs,
-            crossing_count: crossing_id_counter,
-            cell_names,
+            slot_configs: parsed.slot_configs,
+            crossing_count: parsed.crossing_count,
+            cell_names: parsed.cell_names,
             min_score: 50,
         })
     }

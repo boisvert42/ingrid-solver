@@ -673,18 +673,35 @@ pub fn generate_grid_config_from_template_string(
     )
 }
 
-/// Generate an `OwnedGridConfig` from a slots definition string (space-delimited cells, semicolon-delimited slots).
+/// The parsed representation of a custom slots string definition.
+#[derive(Debug, Clone)]
+pub struct ParsedSlots {
+    pub slot_configs: Vec<SlotConfig>,
+    pub crossing_count: usize,
+    pub cell_names: Vec<String>,
+}
+
+/// Parse a custom slots string definition.
+/// Supports comments starting with `#`.
 #[allow(dead_code)]
 #[must_use]
-pub fn generate_grid_config_from_slots_string(
-    mut word_list: WordList,
-    slots_string: &str,
-    min_score: u16,
-) -> OwnedGridConfig {
-    let lines: Vec<&str> = if slots_string.contains(';') {
-        slots_string.split(';').collect()
+pub fn parse_slots_string(slots_string: &str) -> ParsedSlots {
+    let clean_slots_string = slots_string
+        .lines()
+        .map(|line| {
+            if let Some(pos) = line.find('#') {
+                &line[..pos]
+            } else {
+                line
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let lines: Vec<&str> = if clean_slots_string.contains(';') {
+        clean_slots_string.split(';').collect()
     } else {
-        slots_string.lines().collect()
+        clean_slots_string.lines().collect()
     };
     
     let mut slots_cell_names: Vec<Vec<String>> = vec![];
@@ -765,26 +782,42 @@ pub fn generate_grid_config_from_slots_string(
         });
     }
     
-    let fill = vec![None; cell_names.len()];
+    ParsedSlots {
+        slot_configs,
+        crossing_count: crossing_id_counter,
+        cell_names,
+    }
+}
+
+/// Generate an `OwnedGridConfig` from a slots definition string (space-delimited cells, semicolon-delimited slots).
+#[allow(dead_code)]
+#[must_use]
+pub fn generate_grid_config_from_slots_string(
+    mut word_list: WordList,
+    slots_string: &str,
+    min_score: u16,
+) -> OwnedGridConfig {
+    let parsed = parse_slots_string(slots_string);
+    let fill = vec![None; parsed.cell_names.len()];
     
     let mut slot_options = generate_all_slot_options(
         &mut word_list,
         &fill,
-        &slot_configs,
+        &parsed.slot_configs,
         1,
         min_score,
     );
     
-    sort_slot_options(&word_list, &slot_configs, &mut slot_options);
+    sort_slot_options(&word_list, &parsed.slot_configs, &mut slot_options);
     
     OwnedGridConfig {
         word_list,
         fill,
-        slot_configs,
+        slot_configs: parsed.slot_configs,
         slot_options,
         width: 1,
         height: 1,
-        crossing_count: crossing_id_counter,
+        crossing_count: parsed.crossing_count,
         abort: None,
     }
 }
@@ -870,101 +903,9 @@ mod serde_tests {
 
 #[cfg(test)]
 mod custom_topology_tests {
-    use crate::grid_config::{Direction, SlotConfig, Crossing, OwnedGridConfig};
-    use crate::types::GlyphId;
+    use crate::grid_config::generate_grid_config_from_slots_string;
     use crate::word_list::{WordList, WordListSourceConfig, WordListSourceConfigProvider};
     use crate::backtracking_search::find_fill;
-    use std::collections::HashMap;
-
-    fn parse_slots(input: &str) -> (Vec<SlotConfig>, Vec<Option<String>>, usize) {
-        let lines: Vec<&str> = if input.contains(';') {
-            input.split(';').collect()
-        } else {
-            input.lines().collect()
-        };
-        
-        let mut slots_cell_names: Vec<Vec<String>> = vec![];
-        for line in lines {
-            let names: Vec<String> = line.split_whitespace()
-                .map(|s| s.to_string())
-                .filter(|s| !s.is_empty() && s != ";")
-                .collect();
-            if !names.is_empty() {
-                slots_cell_names.push(names);
-            }
-        }
-        
-        let mut unique_cells = vec![];
-        for slot in &slots_cell_names {
-            for cell in slot {
-                if !unique_cells.contains(cell) {
-                    unique_cells.push(cell.clone());
-                }
-            }
-        }
-        
-        let fill = vec![None; unique_cells.len()];
-        
-        let mut cell_occurrences: HashMap<String, Vec<(usize, usize)>> = HashMap::new();
-        for (slot_id, slot) in slots_cell_names.iter().enumerate() {
-            for (cell_idx, cell) in slot.iter().enumerate() {
-                cell_occurrences.entry(cell.clone()).or_insert_with(Vec::new).push((slot_id, cell_idx));
-            }
-        }
-        
-        let mut slot_configs: Vec<SlotConfig> = vec![];
-        let mut crossings_by_slot: Vec<Vec<Vec<Crossing>>> = vec![vec![]; slots_cell_names.len()];
-        
-        for (slot_id, slot) in slots_cell_names.iter().enumerate() {
-            crossings_by_slot[slot_id] = vec![vec![]; slot.len()];
-        }
-        
-        let mut crossing_id_counter = 0;
-        
-        for (_cell_name, occurrences) in &cell_occurrences {
-            if occurrences.len() > 1 {
-                for i in 0..occurrences.len() {
-                    for j in (i + 1)..occurrences.len() {
-                        let (s1, idx1) = occurrences[i];
-                        let (s2, idx2) = occurrences[j];
-                        let crossing_id = crossing_id_counter;
-                        crossing_id_counter += 1;
-                        
-                        crossings_by_slot[s1][idx1].push(Crossing {
-                            other_slot_id: s2,
-                            other_slot_cell: idx2,
-                            crossing_id,
-                        });
-                        
-                        crossings_by_slot[s2][idx2].push(Crossing {
-                            other_slot_id: s1,
-                            other_slot_cell: idx1,
-                            crossing_id,
-                        });
-                    }
-                }
-            }
-        }
-        
-        for (slot_id, slot) in slots_cell_names.iter().enumerate() {
-            let cell_indices: Vec<usize> = slot.iter().map(|name| {
-                unique_cells.iter().position(|c| c == name).unwrap()
-            }).collect();
-            
-            slot_configs.push(SlotConfig {
-                id: slot_id,
-                start_cell: (0, 0),
-                direction: Direction::Across,
-                length: slot.len(),
-                crossings: crossings_by_slot[slot_id].clone(),
-                min_score_override: None,
-                filter_pattern: None,
-                cell_indices: Some(cell_indices),
-            });
-        }
-        
-        (slot_configs, fill, crossing_id_counter)
-    }
 
     #[test]
     fn test_custom_hexagonal_fill() {
@@ -986,8 +927,6 @@ mod custom_topology_tests {
             j q x ;
         ";
 
-        let (slot_configs, fill_names, crossing_count) = parse_slots(slots_input);
-        
         let words = vec![
             ("one".to_string(), 100),
             ("baas".to_string(), 100),
@@ -1006,7 +945,7 @@ mod custom_topology_tests {
             ("sis".to_string(), 100),
         ];
 
-        let mut word_list = WordList::new(
+        let word_list = WordList::new(
             vec![WordListSourceConfig {
                 id: "0".into(),
                 enabled: true,
@@ -1018,27 +957,7 @@ mod custom_topology_tests {
             None,
         );
 
-        let fill: Vec<Option<GlyphId>> = vec![None; fill_names.len()];
-        let mut slot_options = crate::grid_config::generate_all_slot_options(
-            &mut word_list,
-            &fill,
-            &slot_configs,
-            1, // width (dummy)
-            0, // min score
-        );
-
-        crate::grid_config::sort_slot_options(&word_list, &slot_configs, &mut slot_options);
-
-        let owned_config = OwnedGridConfig {
-            word_list,
-            fill,
-            slot_configs,
-            slot_options,
-            width: 1, // width (dummy)
-            height: 1, // height (dummy)
-            crossing_count,
-            abort: None,
-        };
+        let owned_config = generate_grid_config_from_slots_string(word_list, slots_input, 0);
 
         let result = find_fill(&owned_config.to_config_ref(), None, None)
             .expect("Failed to solve hexagonal crossword puzzle");
@@ -1049,5 +968,37 @@ mod custom_topology_tests {
         }).collect();
 
         assert_eq!(solved_words.len(), 15);
+    }
+
+    #[test]
+    fn test_custom_slots_comments() {
+        let slots_input = "
+            # This is a comment line
+            a b c ; # Inline comment
+            # Entirely commented line
+            d e f ; # Another comment style
+        ";
+
+        let words = vec![
+            ("abc".to_string(), 100),
+            ("def".to_string(), 100),
+        ];
+
+        let word_list = WordList::new(
+            vec![WordListSourceConfig {
+                id: "0".into(),
+                enabled: true,
+                provider: WordListSourceConfigProvider::Memory { words },
+                normalization: None,
+            }],
+            None,
+            Some(3),
+            None,
+        );
+
+        let owned_config = generate_grid_config_from_slots_string(word_list, slots_input, 0);
+        assert_eq!(owned_config.slot_configs.len(), 2);
+        assert_eq!(owned_config.slot_configs[0].length, 3);
+        assert_eq!(owned_config.slot_configs[1].length, 3);
     }
 }

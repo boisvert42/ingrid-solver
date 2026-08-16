@@ -90,17 +90,8 @@ fn main() -> Result<(), Error> {
         raw_batch_content = fs::read_to_string(batch_path)
             .map_err(|_| Error(format!("Couldn't read batch file '{}'", batch_path)))?;
 
-        let lines: Vec<&str> = if raw_batch_content.contains(';') {
-            raw_batch_content.split(';').collect()
-        } else {
-            raw_batch_content.lines().collect()
-        };
-        for line in lines {
-            let len = line.split_whitespace().filter(|s| !s.is_empty() && s != &";").count();
-            if len > max_side {
-                max_side = len;
-            }
-        }
+        let parsed = ingrid_core::grid_config::parse_slots_string(&raw_batch_content);
+        max_side = parsed.slot_configs.iter().map(|s| s.length).max().unwrap_or(0);
     }
 
     if !args
