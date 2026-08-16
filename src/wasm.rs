@@ -1,5 +1,5 @@
 use wasm_bindgen::prelude::*;
-use crate::grid_config::{Direction, SlotConfig, Crossing, GridConfig, OwnedGridConfig};
+use crate::grid_config::{Direction, SlotConfig, Crossing, GridConfig};
 use crate::types::GlyphId;
 use crate::word_list::{WordList, WordListSourceConfig, WordListSourceConfigProvider};
 use crate::arc_consistency::{establish_arc_consistency_for_static_grid, EliminationSet};
