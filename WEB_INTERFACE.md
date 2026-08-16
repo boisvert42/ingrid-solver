@@ -48,6 +48,8 @@ Navigate to the web interface in your browser:
 * **`www/index.js`**: Automatically fetches the default dictionary `spreadthewordlist.dict` from the resources folder at startup, instantiates the WebAssembly package, sets the minimum score constraint to 50, renders the cell board, and binds interactive actions.
 * **Word-by-Word Board Representation**: Displays cell input squares grouped horizontally as individual slot rows. Focus events highlight matching cells in all crossing slots and select the slot's candidates in the sidebar. Typing in a cell dynamically synchronizes its value to all intersecting slots on the fly.
 * **Smart Focus Navigation (MCV Heuristic)**: After selecting a candidate word and executing AC-3, the UI automatically identifies the next incomplete slot with the fewest remaining candidate options, focuses it, and highlights its first empty cell.
+* **Backspace Cell Navigation**: Pressing Backspace clears the current letter, syncs the change to all crossing cells, re-runs AC-3 propagation, and shifts input focus to the previous cell within the active slot row.
+* **Auto-Advance Cell Navigation**: Typing a letter in a cell automatically synchronizes it across crossing slots, runs AC-3, and shifts focus to the next cell in the active slot row (stopping at the end of the slot).
 
 ---
 

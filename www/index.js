@@ -142,6 +142,41 @@ function renderBoard() {
                 });
                 
                 propagateConstraints();
+
+                // Auto-advance to the next cell in the slot if we typed a character
+                if (val.length > 0 && charIdx < slot.cells.length - 1) {
+                    const nextInput = document.querySelector(
+                        `input[data-slot-id="${slot.id}"][data-char-idx="${charIdx + 1}"]`
+                    );
+                    if (nextInput) {
+                        nextInput.focus();
+                    }
+                }
+            });
+
+            // Backspace navigation
+            input.addEventListener("keydown", (e) => {
+                if (e.key === "Backspace") {
+                    e.preventDefault();
+                    
+                    // Clear cell value
+                    input.value = "";
+                    document.querySelectorAll(`input[data-cell="${cellName}"]`).forEach(inp => {
+                        inp.value = "";
+                    });
+                    
+                    propagateConstraints();
+                    
+                    // Navigate to previous cell in the same slot
+                    if (charIdx > 0) {
+                        const prevInput = document.querySelector(
+                            `input[data-slot-id="${slot.id}"][data-char-idx="${charIdx - 1}"]`
+                        );
+                        if (prevInput) {
+                            prevInput.focus();
+                        }
+                    }
+                }
             });
             
             // Highlight crossings on focus
