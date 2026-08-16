@@ -10,12 +10,15 @@ use unicode_normalization::UnicodeNormalization;
 
 const STWL_RAW: &str = include_str!("../resources/spreadthewordlist.dict");
 
-/// ingrid_core: Command-line crossword generation tool
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// Path to the grid file, as ASCII with # representing blocks and . representing empty squares
-    grid_path: String,
+    grid_path: Option<String>,
+
+    /// Path to a file containing custom slots in batch mode
+    #[arg(short, long)]
+    batch: Option<String>,
 
     /// Path to a scored wordlist file [default: (embedded copy of Spread the Wordlist)]
     #[arg(long)]
@@ -45,33 +48,60 @@ impl Debug for Error {
 fn main() -> Result<(), Error> {
     let args = Args::parse();
 
-    let raw_grid_content = fs::read_to_string(&args.grid_path)
-        .map_err(|_| Error(format!("Couldn't read file '{}'", args.grid_path)))?
-        .trim()
-        .lines()
-        .map(|line| line.trim().to_lowercase().nfc().collect::<String>())
-        .collect::<Vec<_>>()
-        .join("\n")
-        + "\n";
-
-    let height = raw_grid_content.lines().count();
-
-    if height == 0 {
-        return Err(Error("Grid must have at least one row".into()));
+    if args.grid_path.is_none() && args.batch.is_none() {
+        return Err(Error("Must specify either a grid file path or a batch file path (-b)".into()));
+    }
+    if args.grid_path.is_some() && args.batch.is_some() {
+        return Err(Error("Cannot specify both a grid file path and a batch file path (-b)".into()));
     }
 
-    if raw_grid_content
-        .lines()
-        .map(|line| line.chars().count())
-        .collect::<HashSet<_>>()
-        .len()
-        != 1
-    {
-        return Err(Error("Rows in grid must all be the same length".into()));
-    }
+    let mut max_side = 0;
+    let mut raw_grid_content = String::new();
+    let mut raw_batch_content = String::new();
 
-    let width = raw_grid_content.lines().next().unwrap().chars().count() - 1;
-    let max_side = width.max(height);
+    if let Some(grid_path) = &args.grid_path {
+        raw_grid_content = fs::read_to_string(grid_path)
+            .map_err(|_| Error(format!("Couldn't read file '{}'", grid_path)))?
+            .trim()
+            .lines()
+            .map(|line| line.trim().to_lowercase().nfc().collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+
+        let height = raw_grid_content.lines().count();
+        if height == 0 {
+            return Err(Error("Grid must have at least one row".into()));
+        }
+
+        if raw_grid_content
+            .lines()
+            .map(|line| line.chars().count())
+            .collect::<HashSet<_>>()
+            .len()
+            != 1
+        {
+            return Err(Error("Rows in grid must all be the same length".into()));
+        }
+
+        let width = raw_grid_content.lines().next().unwrap().chars().count() - 1;
+        max_side = width.max(height);
+    } else if let Some(batch_path) = &args.batch {
+        raw_batch_content = fs::read_to_string(batch_path)
+            .map_err(|_| Error(format!("Couldn't read batch file '{}'", batch_path)))?;
+
+        let lines: Vec<&str> = if raw_batch_content.contains(';') {
+            raw_batch_content.split(';').collect()
+        } else {
+            raw_batch_content.lines().collect()
+        };
+        for line in lines {
+            let len = line.split_whitespace().filter(|s| !s.is_empty() && s != &";").count();
+            if len > max_side {
+                max_side = len;
+            }
+        }
+    }
 
     if !args
         .max_shared_substring
@@ -85,7 +115,7 @@ fn main() -> Result<(), Error> {
     let start = Instant::now();
 
     let word_list = WordList::new(
-        vec![match args.wordlist {
+        vec![match &args.wordlist {
             Some(wordlist_path) => WordListSourceConfig {
                 id: "0".into(),
                 enabled: true,
@@ -125,18 +155,29 @@ fn main() -> Result<(), Error> {
         return Err(Error("Word list is empty".into()));
     }
 
-    let grid_config =
-        generate_grid_config_from_template_string(word_list, &raw_grid_content, args.min_score);
+    let grid_config = if args.batch.is_some() {
+        ingrid_core::grid_config::generate_grid_config_from_slots_string(word_list, &raw_batch_content, args.min_score)
+    } else {
+        generate_grid_config_from_template_string(word_list, &raw_grid_content, args.min_score)
+    };
 
     let result = find_fill(&grid_config.to_config_ref(), None, None)
         .map_err(|_| Error("Unfillable grid".into()))?;
 
     let fill_time = start.elapsed() - word_list_time;
 
-    println!(
-        "{}",
-        render_grid(&grid_config.to_config_ref(), &result.choices).replace('.', "#")
-    );
+    if args.batch.is_some() {
+        for (slot_id, slot_config) in grid_config.slot_configs.iter().enumerate() {
+            let choice = result.choices.iter().find(|c| c.slot_id == slot_id).unwrap();
+            let word = &grid_config.word_list.words[slot_config.length][choice.word_id];
+            println!("Slot {}: {}", slot_id + 1, word.normalized_string);
+        }
+    } else {
+        println!(
+            "{}",
+            render_grid(&grid_config.to_config_ref(), &result.choices).replace('.', "#")
+        );
+    }
 
     if args.time {
         eprintln!("{word_list_time:?} loading word list, {fill_time:?} finding fill");

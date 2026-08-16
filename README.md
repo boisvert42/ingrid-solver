@@ -51,17 +51,33 @@ pegs#lemur#shay
 
 You can also use a custom word list (the default is [Spread the
 Wordlist](https://www.spreadthewordlist.com)) or customize various other
-options:
+options.
+
+### Batch Mode (Custom / Non-planar topologies)
+
+For custom, non-planar, or hexagonal slots, you can run the solver in batch mode using the `-b` (or `--batch`) flag. It expects a file containing cell-name slots delimited by spaces and semicolons:
+```
+$ cat batch_slots.txt
+a b c d ;
+d c b a ;
+
+$ ingrid_core -b batch_slots.txt
+Slot 1: time
+Slot 2: emit
+```
+
 ```
 $ ingrid_core --help
 ingrid_core: Command-line crossword generation tool
 
-Usage: ingrid_core [OPTIONS] <GRID_PATH>
+Usage: ingrid_core [OPTIONS] [GRID_PATH]
 
 Arguments:
-  <GRID_PATH>  Path to the grid file, as ASCII with # representing blocks and . representing empty squares
+  [GRID_PATH]  Path to the grid file, as ASCII with # representing blocks and . representing empty squares
 
 Options:
+  -b, --batch <BATCH>
+          Path to a file containing custom slots in batch mode
       --wordlist <WORDLIST>
           Path to a scored wordlist file [default: (embedded copy of Spread the Wordlist)]
       --min-score <MIN_SCORE>

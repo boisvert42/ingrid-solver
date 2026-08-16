@@ -673,6 +673,122 @@ pub fn generate_grid_config_from_template_string(
     )
 }
 
+/// Generate an `OwnedGridConfig` from a slots definition string (space-delimited cells, semicolon-delimited slots).
+#[allow(dead_code)]
+#[must_use]
+pub fn generate_grid_config_from_slots_string(
+    mut word_list: WordList,
+    slots_string: &str,
+    min_score: u16,
+) -> OwnedGridConfig {
+    let lines: Vec<&str> = if slots_string.contains(';') {
+        slots_string.split(';').collect()
+    } else {
+        slots_string.lines().collect()
+    };
+    
+    let mut slots_cell_names: Vec<Vec<String>> = vec![];
+    for line in lines {
+        let names: Vec<String> = line.split_whitespace()
+            .map(std::string::ToString::to_string)
+            .filter(|s| !s.is_empty() && s != ";")
+            .collect();
+        if !names.is_empty() {
+            slots_cell_names.push(names);
+        }
+    }
+    
+    let mut cell_names = vec![];
+    for slot in &slots_cell_names {
+        for cell in slot {
+            if !cell_names.contains(cell) {
+                cell_names.push(cell.clone());
+            }
+        }
+    }
+    
+    let mut cell_occurrences: HashMap<String, Vec<(usize, usize)>> = HashMap::new();
+    for (slot_id, slot) in slots_cell_names.iter().enumerate() {
+        for (cell_idx, cell) in slot.iter().enumerate() {
+            cell_occurrences.entry(cell.clone()).or_default().push((slot_id, cell_idx));
+        }
+    }
+    
+    let mut slot_configs: Vec<SlotConfig> = vec![];
+    let mut crossings_by_slot: Vec<Vec<Vec<Crossing>>> = vec![vec![]; slots_cell_names.len()];
+    
+    for (slot_id, slot) in slots_cell_names.iter().enumerate() {
+        crossings_by_slot[slot_id] = vec![vec![]; slot.len()];
+    }
+    
+    let mut crossing_id_counter = 0;
+    
+    for occurrences in cell_occurrences.values() {
+        if occurrences.len() > 1 {
+            for i in 0..occurrences.len() {
+                for j in (i + 1)..occurrences.len() {
+                    let (s1, idx1) = occurrences[i];
+                    let (s2, idx2) = occurrences[j];
+                    let crossing_id = crossing_id_counter;
+                    crossing_id_counter += 1;
+                    
+                    crossings_by_slot[s1][idx1].push(Crossing {
+                        other_slot_id: s2,
+                        other_slot_cell: idx2,
+                        crossing_id,
+                    });
+                    
+                    crossings_by_slot[s2][idx2].push(Crossing {
+                        other_slot_id: s1,
+                        other_slot_cell: idx1,
+                        crossing_id,
+                    });
+                }
+            }
+        }
+    }
+    
+    for (slot_id, slot) in slots_cell_names.iter().enumerate() {
+        let cell_indices: Vec<usize> = slot.iter().map(|name| {
+            cell_names.iter().position(|c| c == name).unwrap()
+        }).collect();
+        
+        slot_configs.push(SlotConfig {
+            id: slot_id,
+            start_cell: (0, 0),
+            direction: Direction::Across,
+            length: slot.len(),
+            crossings: crossings_by_slot[slot_id].clone(),
+            min_score_override: None,
+            filter_pattern: None,
+            cell_indices: Some(cell_indices),
+        });
+    }
+    
+    let fill = vec![None; cell_names.len()];
+    
+    let mut slot_options = generate_all_slot_options(
+        &mut word_list,
+        &fill,
+        &slot_configs,
+        1,
+        min_score,
+    );
+    
+    sort_slot_options(&word_list, &slot_configs, &mut slot_options);
+    
+    OwnedGridConfig {
+        word_list,
+        fill,
+        slot_configs,
+        slot_options,
+        width: 1,
+        height: 1,
+        crossing_count: crossing_id_counter,
+        abort: None,
+    }
+}
+
 /// A struct recording a slot assignment made during a fill process.
 #[derive(Debug, Clone)]
 pub struct Choice {
