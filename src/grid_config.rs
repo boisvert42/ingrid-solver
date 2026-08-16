@@ -466,7 +466,7 @@ pub fn generate_slot_options(
         let options: Vec<WordId> = (0..word_list.words[length].len())
             .filter(|&word_id| {
                 let word = &word_list.words[length][word_id];
-                let enforce_criteria = allowed_word_ids.map_or(true, |allowed_word_ids| {
+                let enforce_criteria = allowed_word_ids.is_none_or(|allowed_word_ids| {
                     !allowed_word_ids.contains(&word_id)
                 });
 
@@ -687,7 +687,7 @@ pub fn render_grid(config: &GridConfig, choices: &[Choice]) -> String {
     let mut grid: Vec<Option<char>> = config
         .fill
         .iter()
-        .map(|&cell| cell.map(|glyph_id| config.word_list.glyphs[glyph_id as usize]))
+        .map(|&cell| cell.map(|glyph_id| config.word_list.glyphs[glyph_id]))
         .collect();
 
     for &Choice { slot_id, word_id } in choices {

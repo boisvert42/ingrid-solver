@@ -340,7 +340,7 @@ fn maintain_arc_consistency(
         }
 
         ArcConsistencyMode::Initial => {}
-    };
+    }
 
     let remaining_option_counts = slots
         .iter()
@@ -422,7 +422,7 @@ fn maintain_arc_consistency(
                 }
 
                 ArcConsistencyMode::Initial => {}
-            };
+            }
 
             for (slot_id, weight) in crossing_weights.iter_mut().enumerate() {
                 *weight = 1.0
@@ -470,11 +470,11 @@ fn choose_next_slot(
     sorted_slot_ids.sort_by_cached_key(|&slot_id| {
         let priority = calculate_slot_priority(slots, slot_weights, slot_id);
 
-        if best_slot_priority.map_or(true, |best_priority| best_priority > priority) {
+        if best_slot_priority.is_none_or(|best_priority| best_priority > priority) {
             best_slot_priority = Some(priority);
         }
 
-        if last_slot_id.map_or(false, |last_id| last_id == slot_id) {
+        if last_slot_id == Some(slot_id) {
             last_slot_priority = Some(priority);
         }
 

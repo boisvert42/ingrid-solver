@@ -28,7 +28,7 @@ impl WasmSolver {
         let mut slots_cell_names: Vec<Vec<String>> = vec![];
         for line in lines {
             let names: Vec<String> = line.split_whitespace()
-                .map(|s| s.to_string())
+                .map(std::string::ToString::to_string)
                 .filter(|s| !s.is_empty() && s != ";")
                 .collect();
             if !names.is_empty() {
@@ -48,7 +48,7 @@ impl WasmSolver {
         let mut cell_occurrences: HashMap<String, Vec<(usize, usize)>> = HashMap::new();
         for (slot_id, slot) in slots_cell_names.iter().enumerate() {
             for (cell_idx, cell) in slot.iter().enumerate() {
-                cell_occurrences.entry(cell.clone()).or_insert_with(Vec::new).push((slot_id, cell_idx));
+                cell_occurrences.entry(cell.clone()).or_default().push((slot_id, cell_idx));
             }
         }
         
@@ -61,7 +61,7 @@ impl WasmSolver {
         
         let mut crossing_id_counter = 0;
         
-        for (_cell_name, occurrences) in &cell_occurrences {
+        for occurrences in cell_occurrences.values() {
             if occurrences.len() > 1 {
                 for i in 0..occurrences.len() {
                     for j in (i + 1)..occurrences.len() {
@@ -144,6 +144,7 @@ impl WasmSolver {
         Ok(())
     }
 
+    #[must_use] 
     pub fn get_cell_names(&self) -> String {
         serde_json::to_string(&self.cell_names).unwrap_or_else(|_| "[]".to_string())
     }

@@ -550,7 +550,7 @@ impl WordList {
             source_index,
             personal_word_score: if self
                 .personal_list_index
-                .map_or(false, |idx| Some(idx) == source_index)
+                .is_some_and(|idx| Some(idx) == source_index)
             {
                 Some(raw_entry.score)
             } else {
@@ -645,7 +645,7 @@ impl WordList {
                     word.canonical_string.clone_from(&raw_entry.canonical);
                     word.source_index = Some(source_index);
                     word.personal_word_score =
-                        if personal_list_index.map_or(false, |idx| idx == source_index) {
+                        if personal_list_index == Some(source_index) {
                             Some(raw_entry.score)
                         } else {
                             None
@@ -713,8 +713,7 @@ impl WordList {
 
         for (source_index, source) in source_configs.iter().enumerate() {
             let is_personal_list = self
-                .personal_list_index
-                .map_or(false, |idx| idx == (source_index as u16));
+                .personal_list_index == Some(source_index as u16);
 
             refresh_source_if_needed(source, source_index as u16, &mut source_states);
 
@@ -858,8 +857,7 @@ impl WordList {
         }
 
         let is_personal_list = self
-            .personal_list_index
-            .map_or(false, |idx| idx == source_index);
+            .personal_list_index == Some(source_index);
 
         let Some(source_state) = self.source_states.get_mut(&source_config.id) else {
             panic!("optimistically_update_word: no source state found for id");
@@ -897,7 +895,7 @@ impl WordList {
 
         let should_update = word
             .source_index
-            .map_or(true, |existing_index| source_index <= existing_index);
+            .is_none_or(|existing_index| source_index <= existing_index);
 
         if !should_update {
             return previous_entry;
@@ -921,8 +919,7 @@ impl WordList {
         let source_index = self.find_source_index_for_id(source_id)?;
         let source_config = &self.source_configs[source_index as usize];
         let is_personal_list = self
-            .personal_list_index
-            .map_or(false, |idx| idx == source_index);
+            .personal_list_index == Some(source_index);
 
         // Regardless of whether this change is visible in `words`, we need to buffer it
         // to be persisted to the file.
