@@ -15,7 +15,9 @@ self.onmessage = async (e) => {
                 solver.load_dictionary(payload.dictContents);
                 
                 const cellNames = JSON.parse(solver.get_cell_names());
-                self.postMessage({ type: "INIT_SUCCESS", payload: { cellNames } });
+                const slotConfigs = JSON.parse(solver.get_slot_configs());
+                const initialCellValues = JSON.parse(solver.get_prefills());
+                self.postMessage({ type: "INIT_SUCCESS", payload: { cellNames, slotConfigs, initialCellValues } });
             } catch (err) {
                 self.postMessage({ type: "ERROR", payload: err.toString() });
             }

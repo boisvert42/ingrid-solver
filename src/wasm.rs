@@ -6,12 +6,20 @@ use crate::arc_consistency::{establish_arc_consistency_for_static_grid, Eliminat
 use crate::backtracking_search::find_fill;
 use std::collections::HashMap;
 
+#[derive(serde::Serialize)]
+struct JsSlotConfig {
+    id: usize,
+    cells: Vec<String>,
+    length: usize,
+}
+
 #[wasm_bindgen]
 pub struct WasmSolver {
     word_list: Option<WordList>,
     slot_configs: Vec<SlotConfig>,
     crossing_count: usize,
     cell_names: Vec<String>,
+    cell_values: HashMap<String, char>,
     min_score: u16,
 }
 
@@ -26,6 +34,7 @@ impl WasmSolver {
             slot_configs: parsed.slot_configs,
             crossing_count: parsed.crossing_count,
             cell_names: parsed.cell_names,
+            cell_values: parsed.cell_values,
             min_score: 50,
         })
     }
@@ -65,6 +74,26 @@ impl WasmSolver {
     #[must_use] 
     pub fn get_cell_names(&self) -> String {
         serde_json::to_string(&self.cell_names).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    #[must_use]
+    pub fn get_slot_configs(&self) -> String {
+        let serialized_slots: Vec<JsSlotConfig> = self.slot_configs.iter().map(|slot| {
+            let cells = slot.cell_indices.as_ref().map(|idxs| {
+                idxs.iter().map(|&idx| self.cell_names[idx].clone()).collect()
+            }).unwrap_or_else(Vec::new);
+            JsSlotConfig {
+                id: slot.id,
+                cells,
+                length: slot.length,
+            }
+        }).collect();
+        serde_json::to_string(&serialized_slots).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    #[must_use]
+    pub fn get_prefills(&self) -> String {
+        serde_json::to_string(&self.cell_values).unwrap_or_else(|_| "{}".to_string())
     }
 
     pub fn set_min_score(&mut self, min_score: u16) {
