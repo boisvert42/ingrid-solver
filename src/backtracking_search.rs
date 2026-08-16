@@ -10,7 +10,11 @@ use rand::prelude::*;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::sync::atomic::Ordering;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
+#[cfg(target_arch = "wasm32")]
+use instant::Instant;
 
 use crate::arc_consistency::{
     establish_arc_consistency, ArcConsistencyAdapter, ArcConsistencyFailure, EliminationSet,
