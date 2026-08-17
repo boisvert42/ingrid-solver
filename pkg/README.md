@@ -1,0 +1,114 @@
+# Ingrid Core
+
+This crate contains the core crossword-solving code used in the Ingrid
+construction app, as well as a standalone binary that can be used to solve
+grids from the command line.
+
+### Usage
+
+After [setting up Rust](https://rustup.rs), you can install the Ingrid Core CLI
+tool from crates.io:
+```
+$ cargo install ingrid_core
+```
+
+Or install it locally from within this repository:
+```
+$ cargo install --path .
+```
+
+Alternatively, you can run the binary directly from the repository in release mode (highly recommended for performance) using `cargo run --release --`:
+```
+$ cargo run --release -- examples/example_grid.txt
+# Or for batch mode:
+$ cargo run --release -- -b examples/batch_slots.txt
+```
+
+Then you just need to provide a grid as an input file:
+
+```
+$ cat examples/example_grid.txt
+....#.....#....
+....#.....#....
+...............
+......##.......
+###.....#......
+............###
+.....#.....#...
+....#.....#....
+...#.....#.....
+###cremebrulees
+......#.....###
+.......##......
+...............
+....#.....#....
+....#.....#....
+$ ingrid_core examples/example_grid.txt
+bile#seeit#slaw
+room#lasso#pone
+intimateapparel
+garret##whirred
+###amens#easels
+wisterialane###
+aloes#nuevo#tnt
+ssns#betty#ciao
+pas#wipes#pelts
+###cremebrulees
+dealin#deere###
+imgonna##aesops
+goingintodetail
+utne#anise#atta
+pegs#lemur#shay
+```
+
+You can also use a custom word list (the default is [Spread the
+Wordlist](https://www.spreadthewordlist.com)) or customize various other
+options.
+
+### Batch Mode (Custom / Non-planar topologies)
+
+For custom, non-planar, or hexagonal slots, you can run the solver in batch mode using the `-b` (or `--batch`) flag. It expects a file containing cell-name slots delimited by spaces and semicolons:
+```
+$ cat examples/batch_slots.txt
+a b c d ;
+d c b a ;
+
+$ ingrid_core -b examples/batch_slots.txt
+Slot 1: time
+Slot 2: emit
+```
+
+```
+$ ingrid_core --help
+ingrid_core: Command-line crossword generation tool
+
+Usage: ingrid_core [OPTIONS] [GRID_PATH]
+
+Arguments:
+  [GRID_PATH]  Path to the grid file, as ASCII with # representing blocks and . representing empty squares
+
+Options:
+  -b, --batch <BATCH>
+          Path to a file containing custom slots in batch mode
+      --wordlist <WORDLIST>
+          Path to a scored wordlist file [default: (embedded copy of Spread the Wordlist)]
+      --min-score <MIN_SCORE>
+          Minimum allowable word score [default: 50]
+      --max-shared-substring <MAX_SHARED_SUBSTRING>
+          Maximum shared substring length between entries [default: none]
+  -h, --help
+          Print help information
+  -V, --version
+          Print version information
+```
+
+### Acknowledgments
+
+* The backtracking search implementation in this library owes a lot to
+  "Adaptive Strategies for Solving Constraint Satisfaction Problems" by
+  Thanasis Balafoutis, which was helpful both as an overview of the CSP space
+  and a source of specific implementation ideas.
+
+* The CLI tool includes a copy of the free [Spread the
+  Wordlist](https://www.spreadthewordlist.com) dictionary published by Brooke
+  Husic and Enrique Henestroza Anguiano.
