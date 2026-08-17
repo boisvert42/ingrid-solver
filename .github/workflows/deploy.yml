@@ -27,27 +27,16 @@ jobs:
       - name: Prepare Deployment Directory
         run: |
           mkdir dist
-          # Copy source directories to maintain relative paths (../pkg/ and ../resources/)
-          cp -r www dist/
+          # Copy frontend files directly to the root of dist
+          cp -r www/* dist/
+          # Copy pkg and resources to dist
           cp -r pkg dist/
           cp -r resources dist/
           
-          # Create a root redirect index.html so visitors to the base URL are sent to /www/
-          cat << 'EOF' > dist/index.html
-          <!DOCTYPE html>
-          <html>
-            <head>
-              <meta http-equiv="refresh" content="0; url=www/" />
-              <script type="text/javascript">
-                window.location.href = "www/"
-              </script>
-              <title>Redirecting...</title>
-            </head>
-            <body>
-              <p>Redirecting to <a href="www/">web interface</a>...</p>
-            </body>
-          </html>
-          EOF
+          # Rewrite paths to resolve relative to the root directory
+          # (avoids browser security blocks on parent-directory worker imports)
+          sed -i 's|\.\./pkg/|./pkg/|g' dist/solver-worker.js
+          sed -i 's|\.\./resources/|resources/|g' dist/index.js
 
       - name: Deploy to GitHub Pages
         uses: JamesIves/github-pages-deploy-action@v4
