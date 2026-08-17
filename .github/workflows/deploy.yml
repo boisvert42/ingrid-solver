@@ -37,6 +37,9 @@ jobs:
           # (avoids browser security blocks on parent-directory worker imports)
           sed -i 's|\.\./pkg/|./pkg/|g' dist/solver-worker.js
           sed -i 's|\.\./resources/|resources/|g' dist/index.js
+          
+          # Bypass Jekyll processing on GitHub Pages to ensure Wasm/JS files serve correctly
+          touch dist/.nojekyll
 
       - name: Deploy to GitHub Pages
         uses: JamesIves/github-pages-deploy-action@v4
