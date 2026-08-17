@@ -38,6 +38,9 @@ jobs:
           sed -i 's|\.\./pkg/|./pkg/|g' dist/solver-worker.js
           sed -i 's|\.\./resources/|resources/|g' dist/index.js
           
+          # Remove wasm-pack's generated .gitignore inside dist/pkg/ so git does not ignore the built files during deployment
+          rm -f dist/pkg/.gitignore
+          
           # Bypass Jekyll processing on GitHub Pages to ensure Wasm/JS files serve correctly
           touch dist/.nojekyll
 
