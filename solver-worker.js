@@ -1,4 +1,4 @@
-import init, { WasmSolver } from "../pkg/ingrid_core.js";
+import init, { WasmSolver } from "./pkg/ingrid_core.js";
 
 let solver = null;
 let currentValidationTaskId = 0;

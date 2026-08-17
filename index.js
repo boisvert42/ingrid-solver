@@ -93,7 +93,7 @@ worker.onmessage = (e) => {
 async function run() {
     try {
         statusDiv.textContent = "Status: Downloading default dictionary...";
-        const response = await fetch("../resources/spreadthewordlist.dict");
+        const response = await fetch("resources/spreadthewordlist.dict");
         if (!response.ok) {
             throw new Error(`Failed to load dictionary: ${response.statusText}`);
         }
