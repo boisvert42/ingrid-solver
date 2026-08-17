@@ -37,6 +37,27 @@
             justify-content: space-between;
         }
 
+        footer {
+            padding: 8px 24px;
+            background-color: var(--panel-bg);
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        footer a {
+            color: var(--accent-color);
+            text-decoration: none;
+            margin-left: 4px;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
         h1 {
             margin: 0;
             font-size: 1.25rem;
@@ -499,6 +520,10 @@
             </div>
         </div>
     </div>
+
+    <footer>
+        Built with&nbsp;<a href="https://github.com/rf-/ingrid_core" target="_blank" rel="noopener noreferrer">ingrid-core</a>
+    </footer>
 
     <!-- Settings Modal -->
     <div class="modal-overlay" id="settings-modal">
