@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Crossword Constructor</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --panel-bg: #1e293b;
+            --border-color: #334155;
+            --text-color: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent-color: #3b82f6;
+            --accent-hover: #60a5fa;
+            --highlight-color: rgba(59, 130, 246, 0.2);
+            --highlight-border: #3b82f6;
+        }
+
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        header {
+            padding: 16px 24px;
+            background-color: var(--panel-bg);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.25rem;
+            font-weight: 600;
+            letter-spacing: -0.025em;
+        }
+
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .panel {
+            background-color: var(--panel-bg);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        #left-panel {
+            width: 320px;
+            min-width: 320px;
+            padding: 20px;
+            box-sizing: border-box;
+            gap: 16px;
+        }
+
+        #center-panel {
+            flex: 1;
+            padding: 24px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            background-color: #0b0f19;
+        }
+
+        #right-panel {
+            width: 320px;
+            min-width: 320px;
+            border-right: none;
+            border-left: 1px solid var(--border-color);
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        label {
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+
+        textarea {
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            border-radius: 6px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 0.875rem;
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: var(--accent-color);
+        }
+
+        button {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 10px 16px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        button:hover {
+            background-color: var(--accent-hover);
+        }
+
+        .section-title {
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 6px;
+        }
+
+        /* Slots Board (Center Panel) */
+        .board-container {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            width: 100%;
+            max-width: 700px;
+            margin-top: 10px;
+        }
+
+        .board-row {
+            display: flex;
+            align-items: center;
+            padding: 10px 16px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background-color: var(--panel-bg);
+            cursor: pointer;
+            transition: all 0.2s;
+            gap: 16px;
+        }
+
+        .board-row:hover {
+            border-color: var(--text-muted);
+        }
+
+        .board-row.active {
+            border-color: var(--accent-color);
+            background-color: rgba(59, 130, 246, 0.05);
+        }
+
+        .board-row-label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            width: 80px;
+            min-width: 80px;
+            font-weight: 500;
+        }
+
+        .board-row-inputs {
+            display: flex;
+            gap: 8px;
+            flex: 1;
+            flex-wrap: wrap;
+        }
+
+        .cell-square {
+            position: relative;
+            width: 44px;
+            height: 44px;
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+            transition: all 0.2s;
+        }
+
+        .cell-square:focus-within {
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+        }
+
+        .cell-square.crossing-highlight {
+            border-color: #eab308; /* yellow accent for crossing cells */
+            background-color: rgba(234, 179, 8, 0.15);
+        }
+
+        .cell-square-name {
+            position: absolute;
+            top: 2px;
+            left: 4px;
+            font-size: 0.55rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            pointer-events: none;
+        }
+
+        .cell-square-input {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: transparent;
+            color: var(--text-color);
+            font-size: 1.25rem;
+            font-weight: 750;
+            text-align: center;
+            text-transform: uppercase;
+            padding-top: 10px;
+            box-sizing: border-box;
+        }
+
+        .cell-square-input:focus {
+            outline: none;
+        }
+
+        /* Slots List */
+        .slots-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .slot-item {
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            background-color: var(--bg-color);
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.2s;
+        }
+
+        .slot-item:hover {
+            border-color: var(--text-muted);
+        }
+
+        .slot-item.active {
+            border-color: var(--accent-color);
+            background-color: var(--highlight-color);
+        }
+
+        .slot-name {
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+
+        .slot-length {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            background-color: var(--panel-bg);
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        /* Candidates list */
+        .candidates-container {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .candidates-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .candidate-item {
+            padding: 8px 12px;
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: monospace;
+            font-size: 1rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.2s;
+        }
+
+        .candidate-item.pending {
+            color: var(--text-muted);
+            opacity: 0.65;
+        }
+
+        .candidate-item.valid {
+            color: var(--text-color);
+            font-weight: 600;
+            border-color: #3b82f6;
+            background-color: rgba(59, 130, 246, 0.05);
+        }
+
+        .candidate-item:hover {
+            border-color: var(--accent-hover);
+            background-color: var(--highlight-color);
+        }
+
+        .no-candidates {
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        /* Modal Settings styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+        }
+
+        .modal-overlay.open {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-card {
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            width: 90%;
+            max-width: 550px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            animation: modalSlide 0.2s ease;
+        }
+
+        @keyframes modalSlide {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .modal-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .modal-close-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 1.25rem;
+            cursor: pointer;
+            padding: 4px;
+            line-height: 1;
+            transition: color 0.2s;
+        }
+
+        .modal-close-btn:hover {
+            color: var(--text-color);
+        }
+
+        .modal-body {
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+
+        .modal-footer {
+            padding: 16px 20px;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            background-color: rgba(0, 0, 0, 0.1);
+        }
+
+        /* Active Config card on left panel */
+        .active-config-card {
+            background-color: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .active-config-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.85rem;
+        }
+
+        .active-config-value {
+            font-weight: 500;
+            color: var(--text-color);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 160px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Interactive Crossword Constructor</h1>
+        <div id="status" style="font-size: 0.875rem; color: var(--text-muted);">Status: Loading WebAssembly...</div>
+    </header>
+
+    <div class="main-container">
+        <!-- Left Panel: Configurations -->
+        <div class="panel" id="left-panel">
+            <div class="section-title">Configuration</div>
+            
+            <div class="active-config-card">
+                <div class="active-config-item">
+                    <span style="color: var(--text-muted);">Dictionary:</span>
+                    <span class="active-config-value" id="active-dict-label">spreadthewordlist.dict</span>
+                </div>
+                <div class="active-config-item">
+                    <span style="color: var(--text-muted);">Min Score:</span>
+                    <span class="active-config-value" id="active-score-label">50</span>
+                </div>
+                <button id="open-settings-btn" style="margin-top: 6px; font-size: 0.8rem; padding: 6px 12px;">Configure Solver...</button>
+            </div>
+
+            <div class="section-title">Word Slots</div>
+            <div class="slots-list" id="slots-list" style="flex: 1; overflow-y: auto;">
+                <!-- Populated dynamically -->
+            </div>
+        </div>
+
+        <!-- Center Panel: Grid Board Visualization -->
+        <div id="center-panel">
+            <div class="section-title">Crossword Slots & Cells</div>
+            <div class="board-container" id="cells-board">
+                <!-- Populated dynamically -->
+            </div>
+        </div>
+
+        <!-- Right Panel: Options & Actions -->
+        <div class="panel" id="right-panel">
+            <div class="section-title">Remaining Candidates</div>
+            <div class="candidates-container">
+                <div class="candidates-list" id="candidates-list">
+                    <div class="no-candidates">Select a word slot to see options.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="modal-overlay" id="settings-modal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h2>Solver Settings</h2>
+                <button class="modal-close-btn" id="close-modal-x">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="slots-input">Slots Definition</label>
+                    <textarea id="slots-input" style="min-height: 150px;">a b c ;
+e f g h ;
+j k l m n ;
+q r s t ;
+x y z ;
+a e j ;
+b f k q ;
+c g l r x ;
+h m s y ;
+n t z ;
+c h n ;
+b g m t ;
+a f l s z ;
+e k r y ;
+j q x ;</textarea>
+                </div>
+
+                <div class="form-group" style="gap: 8px;">
+                    <label>Dictionary File</label>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <button id="upload-btn" style="background-color: var(--panel-bg); border: 1px solid var(--border-color); color: var(--text-color); padding: 8px 12px; font-size: 0.8rem;">Upload Custom List</button>
+                        <input type="file" id="dict-file-input" accept=".dict,.txt" style="display: none;" />
+                        <span id="uploaded-dict-name" style="font-size: 0.75rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 250px;">spreadthewordlist.dict</span>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="min-score-input">Minimum Word Score</label>
+                    <input type="number" id="min-score-input" value="50" min="0" max="100" style="width: 80px; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); background-color: var(--bg-color); color: var(--text-color); font-size: 0.875rem;" />
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="cancel-settings-btn" style="background-color: transparent; border: 1px solid var(--border-color); color: var(--text-muted);">Cancel</button>
+                <button id="init-btn">Initialize Solver</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Load the Wasm init script -->
+    <script type="module" src="index.js"></script>
+</body>
+</html>

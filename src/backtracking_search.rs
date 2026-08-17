@@ -10,12 +10,16 @@ use rand::prelude::*;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::sync::atomic::Ordering;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
+#[cfg(target_arch = "wasm32")]
+use instant::Instant;
 
 use crate::arc_consistency::{
     establish_arc_consistency, ArcConsistencyAdapter, ArcConsistencyFailure, EliminationSet,
 };
-use crate::grid_config::{Choice, Crossing, GridConfig, SlotId};
+use crate::grid_config::{Choice, GridConfig, SlotId};
 use crate::types::WordId;
 use crate::util::{build_glyph_counts_by_cell, GlyphCountsByCell};
 
@@ -217,19 +221,17 @@ fn calculate_slot_weight(
     config.slot_configs[slot_id]
         .crossings
         .iter()
-        .map(|crossing| match crossing {
-            Some(Crossing {
-                other_slot_id,
-                crossing_id,
-                ..
-            }) => {
-                if slots[*other_slot_id].remaining_option_count > 1 {
-                    crossing_weights[*crossing_id]
-                } else {
-                    0.0
-                }
-            }
-            None => 0.0,
+        .map(|crossings| {
+            crossings
+                .iter()
+                .map(|crossing| {
+                    if slots[crossing.other_slot_id].remaining_option_count > 1 {
+                        crossing_weights[crossing.crossing_id]
+                    } else {
+                        0.0
+                    }
+                })
+                .sum::<f32>()
         })
         .sum()
 }
@@ -342,7 +344,7 @@ fn maintain_arc_consistency(
         }
 
         ArcConsistencyMode::Initial => {}
-    };
+    }
 
     let remaining_option_counts = slots
         .iter()
@@ -424,7 +426,7 @@ fn maintain_arc_consistency(
                 }
 
                 ArcConsistencyMode::Initial => {}
-            };
+            }
 
             for (slot_id, weight) in crossing_weights.iter_mut().enumerate() {
                 *weight = 1.0
@@ -472,11 +474,11 @@ fn choose_next_slot(
     sorted_slot_ids.sort_by_cached_key(|&slot_id| {
         let priority = calculate_slot_priority(slots, slot_weights, slot_id);
 
-        if best_slot_priority.map_or(true, |best_priority| best_priority > priority) {
+        if best_slot_priority.is_none_or(|best_priority| best_priority > priority) {
             best_slot_priority = Some(priority);
         }
 
-        if last_slot_id.map_or(false, |last_id| last_id == slot_id) {
+        if last_slot_id == Some(slot_id) {
             last_slot_priority = Some(priority);
         }
 

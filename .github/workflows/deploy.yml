@@ -1,0 +1,56 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main  # Change to master if your default branch is master
+
+permissions:
+  contents: write
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build WebAssembly Crate
+        run: wasm-pack build --target web
+
+      - name: Prepare Deployment Directory
+        run: |
+          mkdir dist
+          # Copy source directories to maintain relative paths (../pkg/ and ../resources/)
+          cp -r www dist/
+          cp -r pkg dist/
+          cp -r resources dist/
+          
+          # Create a root redirect index.html so visitors to the base URL are sent to /www/
+          cat << 'EOF' > dist/index.html
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta http-equiv="refresh" content="0; url=www/" />
+              <script type="text/javascript">
+                window.location.href = "www/"
+              </script>
+              <title>Redirecting...</title>
+            </head>
+            <body>
+              <p>Redirecting to <a href="www/">web interface</a>...</p>
+            </body>
+          </html>
+          EOF
+
+      - name: Deploy to GitHub Pages
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: dist
+          branch: gh-pages

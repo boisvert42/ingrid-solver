@@ -54,9 +54,10 @@ pub struct SlotConfig {
     pub start_cell: GridCoord,
     pub direction: Direction,
     pub length: usize,
-    pub crossings: Vec<Option<Crossing>>,
+    pub crossings: Vec<Vec<Crossing>>,
     pub min_score_override: Option<u16>,
     pub filter_pattern: Option<Regex>,
+    pub cell_indices: Option<Vec<usize>>,
 }
 
 impl SlotConfig {
@@ -74,10 +75,14 @@ impl SlotConfig {
     /// Generate the indices of this slot's cells in a flat fill array like `GridConfig.fill`.
     #[must_use]
     pub fn cell_fill_indices(&self, grid_width: usize) -> Vec<usize> {
-        self.cell_coords()
-            .iter()
-            .map(|loc| loc.0 + loc.1 * grid_width)
-            .collect()
+        if let Some(ref indices) = self.cell_indices {
+            indices.clone()
+        } else {
+            self.cell_coords()
+                .iter()
+                .map(|loc| loc.0 + loc.1 * grid_width)
+                .collect()
+        }
     }
 
     /// Get the values of this slot's cells in a flat fill array like `GridConfig.fill`.
@@ -161,7 +166,7 @@ pub struct OwnedGridConfig {
 impl OwnedGridConfig {
     #[allow(dead_code)]
     #[must_use]
-    pub fn to_config_ref(&self) -> GridConfig {
+    pub fn to_config_ref(&self) -> GridConfig<'_> {
         GridConfig {
             word_list: &self.word_list,
             fill: &self.fill,
@@ -211,14 +216,17 @@ pub fn sort_slot_options(
                 .crossings
                 .iter()
                 .zip(&word.glyphs)
-                .map(|(crossing, &glyph)| match crossing {
-                    Some(crossing) => {
-                        let crossing_counts_by_cell =
-                            &glyph_counts_by_cell_by_slot[crossing.other_slot_id];
+                .map(|(crossings, &glyph)| {
+                    if crossings.is_empty() {
+                        0.0
+                    } else {
+                        crossings.iter().map(|crossing| {
+                            let crossing_counts_by_cell =
+                                &glyph_counts_by_cell_by_slot[crossing.other_slot_id];
 
-                        (crossing_counts_by_cell[crossing.other_slot_cell][glyph] as f32).log10()
+                            (crossing_counts_by_cell[crossing.other_slot_cell][glyph] as f32).log10()
+                        }).sum::<f32>() / (crossings.len() as f32)
                     }
-                    None => 0.0,
                 })
                 .fold(0.0, |a, b| a + b)
                 / (slot_config.length as f32);
@@ -374,7 +382,7 @@ pub fn generate_slot_configs(entries: &[SlotSpec]) -> (Vec<SlotConfig>, usize) {
 
     // Now we can build the actual slot configs.
     for (entry_idx, entry) in entries.iter().enumerate() {
-        let crossings: Vec<Option<Crossing>> = entry
+        let crossings: Vec<Vec<Crossing>> = entry
             .cell_coords()
             .iter()
             .map(|&loc| {
@@ -385,7 +393,7 @@ pub fn generate_slot_configs(entries: &[SlotSpec]) -> (Vec<SlotConfig>, usize) {
                     .collect();
 
                 if crossing_idxs.is_empty() {
-                    None
+                    vec![]
                 } else if crossing_idxs.len() > 1 {
                     panic!("More than two entries crossing in cell?");
                 } else {
@@ -403,11 +411,11 @@ pub fn generate_slot_configs(entries: &[SlotSpec]) -> (Vec<SlotConfig>, usize) {
                         constraint_id_cache.len() - 1
                     };
 
-                    Some(Crossing {
+                    vec![Crossing {
                         other_slot_id,
                         other_slot_cell,
                         crossing_id,
-                    })
+                    }]
                 }
             })
             .collect();
@@ -420,6 +428,7 @@ pub fn generate_slot_configs(entries: &[SlotSpec]) -> (Vec<SlotConfig>, usize) {
             crossings,
             min_score_override: None,
             filter_pattern: None,
+            cell_indices: None,
         });
     }
 
@@ -457,7 +466,7 @@ pub fn generate_slot_options(
         let options: Vec<WordId> = (0..word_list.words[length].len())
             .filter(|&word_id| {
                 let word = &word_list.words[length][word_id];
-                let enforce_criteria = allowed_word_ids.map_or(true, |allowed_word_ids| {
+                let enforce_criteria = allowed_word_ids.is_none_or(|allowed_word_ids| {
                     !allowed_word_ids.contains(&word_id)
                 });
 
@@ -664,6 +673,180 @@ pub fn generate_grid_config_from_template_string(
     )
 }
 
+/// The parsed representation of a custom slots string definition.
+#[derive(Debug, Clone)]
+pub struct ParsedSlots {
+    pub slot_configs: Vec<SlotConfig>,
+    pub crossing_count: usize,
+    pub cell_names: Vec<String>,
+    pub cell_values: HashMap<String, char>,
+}
+
+/// Parse a custom slots string definition.
+/// Supports comments starting with `#`.
+#[allow(dead_code)]
+#[must_use]
+pub fn parse_slots_string(slots_string: &str) -> ParsedSlots {
+    let clean_slots_string = slots_string
+        .lines()
+        .map(|line| {
+            if let Some(pos) = line.find('#') {
+                &line[..pos]
+            } else {
+                line
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let lines: Vec<&str> = if clean_slots_string.contains(';') {
+        clean_slots_string.split(';').collect()
+    } else {
+        clean_slots_string.lines().collect()
+    };
+
+    let mut slots_cell_names: Vec<Vec<String>> = vec![];
+    let mut cell_values: HashMap<String, char> = HashMap::new();
+    for line in lines {
+        let mut names: Vec<String> = line.split_whitespace()
+            .map(std::string::ToString::to_string)
+            .filter(|s| !s.is_empty() && s != ";")
+            .collect();
+        if !names.is_empty() {
+            let mut prefilled_word = None;
+            if let Some(last_name) = names.last() {
+                if last_name.starts_with('=') {
+                    prefilled_word = Some(last_name[1..].to_string());
+                }
+            }
+            if let Some(word) = prefilled_word {
+                names.pop(); // Remove the "=WORD" token from the cell names
+                for (idx, c) in word.chars().enumerate() {
+                    if idx < names.len() && c != '.' && c != '?' {
+                        cell_values.insert(names[idx].clone(), c);
+                    }
+                }
+            }
+            if !names.is_empty() {
+                slots_cell_names.push(names);
+            }
+        }
+    }
+
+    let mut cell_names = vec![];
+    for slot in &slots_cell_names {
+        for cell in slot {
+            if !cell_names.contains(cell) {
+                cell_names.push(cell.clone());
+            }
+        }
+    }
+
+    let mut cell_occurrences: HashMap<String, Vec<(usize, usize)>> = HashMap::new();
+    for (slot_id, slot) in slots_cell_names.iter().enumerate() {
+        for (cell_idx, cell) in slot.iter().enumerate() {
+            cell_occurrences.entry(cell.clone()).or_default().push((slot_id, cell_idx));
+        }
+    }
+
+    let mut slot_configs: Vec<SlotConfig> = vec![];
+    let mut crossings_by_slot: Vec<Vec<Vec<Crossing>>> = vec![vec![]; slots_cell_names.len()];
+
+    for (slot_id, slot) in slots_cell_names.iter().enumerate() {
+        crossings_by_slot[slot_id] = vec![vec![]; slot.len()];
+    }
+
+    let mut crossing_id_counter = 0;
+
+    for occurrences in cell_occurrences.values() {
+        if occurrences.len() > 1 {
+            for i in 0..occurrences.len() {
+                for j in (i + 1)..occurrences.len() {
+                    let (s1, idx1) = occurrences[i];
+                    let (s2, idx2) = occurrences[j];
+                    let crossing_id = crossing_id_counter;
+                    crossing_id_counter += 1;
+
+                    crossings_by_slot[s1][idx1].push(Crossing {
+                        other_slot_id: s2,
+                        other_slot_cell: idx2,
+                        crossing_id,
+                    });
+
+                    crossings_by_slot[s2][idx2].push(Crossing {
+                        other_slot_id: s1,
+                        other_slot_cell: idx1,
+                        crossing_id,
+                    });
+                }
+            }
+        }
+    }
+
+    for (slot_id, slot) in slots_cell_names.iter().enumerate() {
+        let cell_indices: Vec<usize> = slot.iter().map(|name| {
+            cell_names.iter().position(|c| c == name).unwrap()
+        }).collect();
+
+        slot_configs.push(SlotConfig {
+            id: slot_id,
+            start_cell: (0, 0),
+            direction: Direction::Across,
+            length: slot.len(),
+            crossings: crossings_by_slot[slot_id].clone(),
+            min_score_override: None,
+            filter_pattern: None,
+            cell_indices: Some(cell_indices),
+        });
+    }
+
+    ParsedSlots {
+        slot_configs,
+        crossing_count: crossing_id_counter,
+        cell_names,
+        cell_values,
+    }
+}
+
+/// Generate an `OwnedGridConfig` from a slots definition string (space-delimited cells, semicolon-delimited slots).
+#[allow(dead_code)]
+#[must_use]
+pub fn generate_grid_config_from_slots_string(
+    mut word_list: WordList,
+    slots_string: &str,
+    min_score: u16,
+) -> OwnedGridConfig {
+    let parsed = parse_slots_string(slots_string);
+    let mut fill = vec![None; parsed.cell_names.len()];
+
+    for (cell_name, &ch) in &parsed.cell_values {
+        if let Some(cell_idx) = parsed.cell_names.iter().position(|c| c == cell_name) {
+            fill[cell_idx] = Some(word_list.glyph_id_for_char(ch.to_lowercase().next().unwrap()));
+        }
+    }
+
+    let mut slot_options = generate_all_slot_options(
+        &mut word_list,
+        &fill,
+        &parsed.slot_configs,
+        1,
+        min_score,
+    );
+
+    sort_slot_options(&word_list, &parsed.slot_configs, &mut slot_options);
+
+    OwnedGridConfig {
+        word_list,
+        fill,
+        slot_configs: parsed.slot_configs,
+        slot_options,
+        width: 1,
+        height: 1,
+        crossing_count: parsed.crossing_count,
+        abort: None,
+    }
+}
+
 /// A struct recording a slot assignment made during a fill process.
 #[derive(Debug, Clone)]
 pub struct Choice {
@@ -678,7 +861,7 @@ pub fn render_grid(config: &GridConfig, choices: &[Choice]) -> String {
     let mut grid: Vec<Option<char>> = config
         .fill
         .iter()
-        .map(|&cell| cell.map(|glyph_id| config.word_list.glyphs[glyph_id as usize]))
+        .map(|&cell| cell.map(|glyph_id| config.word_list.glyphs[glyph_id]))
         .collect();
 
     for &Choice { slot_id, word_id } in choices {
@@ -740,5 +923,145 @@ mod serde_tests {
                 length: 12,
             }
         );
+    }
+}
+
+#[cfg(test)]
+mod custom_topology_tests {
+    use crate::grid_config::generate_grid_config_from_slots_string;
+    use crate::word_list::{WordList, WordListSourceConfig, WordListSourceConfigProvider};
+    use crate::backtracking_search::find_fill;
+
+    #[test]
+    fn test_custom_hexagonal_fill() {
+        let slots_input = "
+            a b c ;
+            e f g h ;
+            j k l m n ;
+            q r s t ;
+            x y z ;
+            a e j ;
+            b f k q ;
+            c g l r x ;
+            h m s y ;
+            n t z ;
+            c h n ;
+            b g m t ;
+            a f l s z ;
+            e k r y ;
+            j q x ;
+        ";
+
+        let words = vec![
+            ("one".to_string(), 100),
+            ("baas".to_string(), 100),
+            ("sorns".to_string(), 100),
+            ("idea".to_string(), 100),
+            ("sed".to_string(), 100),
+            ("obs".to_string(), 100),
+            ("naoi".to_string(), 100),
+            ("eards".to_string(), 100),
+            ("snee".to_string(), 100),
+            ("sad".to_string(), 100),
+            ("ess".to_string(), 100),
+            ("nana".to_string(), 100),
+            ("oared".to_string(), 100),
+            ("bode".to_string(), 100),
+            ("sis".to_string(), 100),
+        ];
+
+        let word_list = WordList::new(
+            vec![WordListSourceConfig {
+                id: "0".into(),
+                enabled: true,
+                provider: WordListSourceConfigProvider::Memory { words },
+                normalization: None,
+            }],
+            None,
+            Some(5),
+            None,
+        );
+
+        let owned_config = generate_grid_config_from_slots_string(word_list, slots_input, 0);
+
+        let result = find_fill(&owned_config.to_config_ref(), None, None)
+            .expect("Failed to solve hexagonal crossword puzzle");
+
+        let solved_words: Vec<String> = result.choices.iter().map(|choice| {
+            let slot_len = owned_config.slot_configs[choice.slot_id].length;
+            owned_config.word_list.words[slot_len][choice.word_id].normalized_string.clone()
+        }).collect();
+
+        assert_eq!(solved_words.len(), 15);
+    }
+
+    #[test]
+    fn test_custom_slots_comments() {
+        let slots_input = "
+            # This is a comment line
+            a b c ; # Inline comment
+            # Entirely commented line
+            d e f ; # Another comment style
+        ";
+
+        let words = vec![
+            ("abc".to_string(), 100),
+            ("def".to_string(), 100),
+        ];
+
+        let word_list = WordList::new(
+            vec![WordListSourceConfig {
+                id: "0".into(),
+                enabled: true,
+                provider: WordListSourceConfigProvider::Memory { words },
+                normalization: None,
+            }],
+            None,
+            Some(3),
+            None,
+        );
+
+        let owned_config = generate_grid_config_from_slots_string(word_list, slots_input, 0);
+        assert_eq!(owned_config.slot_configs.len(), 2);
+        assert_eq!(owned_config.slot_configs[0].length, 3);
+        assert_eq!(owned_config.slot_configs[1].length, 3);
+    }
+
+    #[test]
+    fn test_custom_slots_prefilled() {
+        let slots_input = "
+            a b c d =MARK ;
+            c b a ;
+        ";
+
+        let words = vec![
+            ("mark".to_string(), 100),
+            ("kef".to_string(), 100),
+            ("ram".to_string(), 100),
+            ("spa".to_string(), 100),
+        ];
+
+        let word_list = WordList::new(
+            vec![WordListSourceConfig {
+                id: "0".into(),
+                enabled: true,
+                provider: WordListSourceConfigProvider::Memory { words },
+                normalization: None,
+            }],
+            None,
+            Some(4),
+            None,
+        );
+
+        let owned_config = generate_grid_config_from_slots_string(word_list, slots_input, 0);
+
+        assert_eq!(owned_config.slot_configs[0].length, 4);
+
+        let a_idx = owned_config.slot_configs[0].cell_indices.as_ref().unwrap()[0];
+        let d_idx = owned_config.slot_configs[0].cell_indices.as_ref().unwrap()[3];
+
+        let word_list_ref = &owned_config.word_list;
+        assert_eq!(owned_config.fill[a_idx], Some(word_list_ref.glyph_id_by_char.get(&'m').copied().unwrap()));
+        assert_eq!(owned_config.fill[d_idx], Some(word_list_ref.glyph_id_by_char.get(&'k').copied().unwrap()));
     }
 }

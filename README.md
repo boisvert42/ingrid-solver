@@ -7,15 +7,27 @@ grids from the command line.
 ### Usage
 
 After [setting up Rust](https://rustup.rs), you can install the Ingrid Core CLI
-tool with `cargo`:
+tool from crates.io:
 ```
 $ cargo install ingrid_core
+```
+
+Or install it locally from within this repository:
+```
+$ cargo install --path .
+```
+
+Alternatively, you can run the binary directly from the repository in release mode (highly recommended for performance) using `cargo run --release --`:
+```
+$ cargo run --release -- examples/example_grid.txt
+# Or for batch mode:
+$ cargo run --release -- -b examples/batch_slots.txt
 ```
 
 Then you just need to provide a grid as an input file:
 
 ```
-$ cat example_grid.txt
+$ cat examples/example_grid.txt
 ....#.....#....
 ....#.....#....
 ...............
@@ -31,7 +43,7 @@ $ cat example_grid.txt
 ...............
 ....#.....#....
 ....#.....#....
-$ ingrid_core example_grid.txt
+$ ingrid_core examples/example_grid.txt
 bile#seeit#slaw
 room#lasso#pone
 intimateapparel
@@ -51,17 +63,33 @@ pegs#lemur#shay
 
 You can also use a custom word list (the default is [Spread the
 Wordlist](https://www.spreadthewordlist.com)) or customize various other
-options:
+options.
+
+### Batch Mode (Custom / Non-planar topologies)
+
+For custom, non-planar, or hexagonal slots, you can run the solver in batch mode using the `-b` (or `--batch`) flag. It expects a file containing cell-name slots delimited by spaces and semicolons:
+```
+$ cat examples/batch_slots.txt
+a b c d ;
+d c b a ;
+
+$ ingrid_core -b examples/batch_slots.txt
+Slot 1: time
+Slot 2: emit
+```
+
 ```
 $ ingrid_core --help
 ingrid_core: Command-line crossword generation tool
 
-Usage: ingrid_core [OPTIONS] <GRID_PATH>
+Usage: ingrid_core [OPTIONS] [GRID_PATH]
 
 Arguments:
-  <GRID_PATH>  Path to the grid file, as ASCII with # representing blocks and . representing empty squares
+  [GRID_PATH]  Path to the grid file, as ASCII with # representing blocks and . representing empty squares
 
 Options:
+  -b, --batch <BATCH>
+          Path to a file containing custom slots in batch mode
       --wordlist <WORDLIST>
           Path to a scored wordlist file [default: (embedded copy of Spread the Wordlist)]
       --min-score <MIN_SCORE>

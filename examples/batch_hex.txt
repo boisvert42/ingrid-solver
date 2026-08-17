@@ -1,0 +1,16 @@
+# Hexagonal grid -- example from https://www.quinapalus.com/crux.html
+a b c ;
+e f g h ;
+j k l m n ;
+q r s t ;
+x y z ;
+a e j ;
+b f k q ;
+c g l r x ;
+h m s y ;
+n t z ;
+c h n ;
+b g m t ;
+a f l s z ;
+e k r y ;
+j q x ;

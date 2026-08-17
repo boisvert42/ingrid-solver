@@ -16,7 +16,7 @@ use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-use crate::grid_config::{Crossing, CrossingId, GridConfig, SlotConfig, SlotId};
+use crate::grid_config::{CrossingId, GridConfig, SlotConfig, SlotId};
 use crate::types::WordId;
 use crate::util::{build_glyph_counts_by_cell, GlyphCountsByCell};
 use crate::word_list::WordList;
@@ -236,12 +236,8 @@ pub fn establish_arc_consistency<Adapter: ArcConsistencyAdapter>(
                 .crossings
                 .iter()
                 .enumerate()
-                .filter(|(_, crossing_opt)| {
-                    if let Some(crossing) = crossing_opt {
-                        !fixed_slots[crossing.other_slot_id]
-                    } else {
-                        false
-                    }
+                .filter(|(_, crossing_list)| {
+                    crossing_list.iter().any(|crossing| !fixed_slots[crossing.other_slot_id])
                 })
                 .map(|(cell_idx, _)| cell_idx)
                 .collect(),
@@ -283,13 +279,14 @@ pub fn establish_arc_consistency<Adapter: ArcConsistencyAdapter>(
         if slot_states[slot_id].option_count == 0 {
             let initial_count = initial_option_counts[slot_id] as f32;
 
+            let blame_counts = &slot_states[slot_id].blame_counts;
             return Err(ArcConsistencyFailure {
                 weight_updates: slot_config
                     .crossings
                     .iter()
                     .enumerate()
-                    .filter_map(|(cell_idx, crossing)| {
-                        crossing.as_ref().map(|crossing| {
+                    .flat_map(|(cell_idx, crossings)| {
+                        crossings.iter().map(move |crossing| {
                             // We'll increment the weight of each constraint affecting this slot
                             // by the number of options it removed divided by the number of
                             // options we started with (IOW, the percentage of the slot's
@@ -301,7 +298,7 @@ pub fn establish_arc_consistency<Adapter: ArcConsistencyAdapter>(
                             // the grid pairwise every time, so it doesn't really seem worth it.
                             (
                                 crossing.crossing_id,
-                                (slot_states[slot_id].blame_counts[cell_idx] as f32)
+                                (blame_counts[cell_idx] as f32)
                                     / initial_count,
                             )
                         })
@@ -338,26 +335,24 @@ pub fn establish_arc_consistency<Adapter: ArcConsistencyAdapter>(
             // glyph in this position, and there's a crossing entry that has at least one option
             // relying on the glyph, enqueue the cell so that we can propagate the impact further.
             if glyph_counts_for_cell[glyph_id] == 0 {
-                let Some(crossing) = &slot_config.crossings[cell_idx] else {
-                    continue;
-                };
-
-                if fixed_slots[crossing.other_slot_id] {
-                    continue;
-                }
-
-                let crossing_glyph_count = slot_states[crossing.other_slot_id]
-                    .get_glyph_counts(adapter)[crossing.other_slot_cell][glyph_id];
-
-                if crossing_glyph_count > 0 {
-                    if slot_states[slot_id].queued_cell_idxs.is_none() {
-                        slot_states[slot_id].queued_cell_idxs =
-                            Some(Vec::with_capacity(slot_config.length));
+                for crossing in &slot_config.crossings[cell_idx] {
+                    if fixed_slots[crossing.other_slot_id] {
+                        continue;
                     }
-                    let queued_cell_idxs = slot_states[slot_id].queued_cell_idxs.as_mut().unwrap();
 
-                    if !queued_cell_idxs.contains(&cell_idx) {
-                        queued_cell_idxs.push(cell_idx);
+                    let crossing_glyph_count = slot_states[crossing.other_slot_id]
+                        .get_glyph_counts(adapter)[crossing.other_slot_cell][glyph_id];
+
+                    if crossing_glyph_count > 0 {
+                        if slot_states[slot_id].queued_cell_idxs.is_none() {
+                            slot_states[slot_id].queued_cell_idxs =
+                                Some(Vec::with_capacity(slot_config.length));
+                        }
+                        let queued_cell_idxs = slot_states[slot_id].queued_cell_idxs.as_mut().unwrap();
+
+                        if !queued_cell_idxs.contains(&cell_idx) {
+                            queued_cell_idxs.push(cell_idx);
+                        }
                     }
                 }
             }
@@ -400,53 +395,51 @@ pub fn establish_arc_consistency<Adapter: ArcConsistencyAdapter>(
             // We want to examine the slot's cells in descending order of crossing weight.
             let mut cell_idxs = slot_states[slot_id].queued_cell_idxs.take().unwrap();
             cell_idxs.sort_by_cached_key(|&cell_idx| {
-                let crossing_id = config.slot_configs[slot_id].crossings[cell_idx]
-                    .as_ref()
-                    .expect("queued cell_idx must have a crossing")
-                    .crossing_id;
-                Reverse(FloatOrd(crossing_weights[crossing_id]))
+                let crossings = &config.slot_configs[slot_id].crossings[cell_idx];
+                let max_weight = crossings
+                    .iter()
+                    .map(|c| crossing_weights[c.crossing_id])
+                    .fold(0.0, f32::max);
+                Reverse(FloatOrd(max_weight))
             });
 
             // For each queued cell, go through the crossing slot's options and eliminate any that
             // are incompatible with this slot's possible values.
             for cell_idx in cell_idxs {
-                let &Crossing {
-                    other_slot_id,
-                    other_slot_cell,
-                    ..
-                } = config.slot_configs[slot_id].crossings[cell_idx]
-                    .as_ref()
-                    .unwrap();
+                for crossing in &config.slot_configs[slot_id].crossings[cell_idx] {
+                    let other_slot_id = crossing.other_slot_id;
+                    let other_slot_cell = crossing.other_slot_cell;
 
-                let other_slot_config = &config.slot_configs[other_slot_id];
-                let other_slot_options = &config.slot_options[other_slot_id];
+                    let other_slot_config = &config.slot_configs[other_slot_id];
+                    let other_slot_options = &config.slot_options[other_slot_id];
 
-                for &slot_option_word_id in other_slot_options {
-                    // If this word has already been eliminated, we don't need to check it again.
-                    if adapter.is_word_eliminated(other_slot_id, slot_option_word_id)
-                        || slot_states[other_slot_id]
-                            .eliminations
-                            .contains(slot_option_word_id)
-                    {
-                        continue;
-                    }
+                    for &slot_option_word_id in other_slot_options {
+                        // If this word has already been eliminated, we don't need to check it again.
+                        if adapter.is_word_eliminated(other_slot_id, slot_option_word_id)
+                            || slot_states[other_slot_id]
+                                .eliminations
+                                .contains(slot_option_word_id)
+                        {
+                            continue;
+                        }
 
-                    let slot_option_word =
-                        &config.word_list.words[other_slot_config.length][slot_option_word_id];
-                    let slot_option_glyph = slot_option_word.glyphs[other_slot_cell];
+                        let slot_option_word =
+                            &config.word_list.words[other_slot_config.length][slot_option_word_id];
+                        let slot_option_glyph = slot_option_word.glyphs[other_slot_cell];
 
-                    let number_of_matching_options =
-                        slot_states[slot_id].get_glyph_counts(adapter)[cell_idx][slot_option_glyph];
+                        let number_of_matching_options =
+                            slot_states[slot_id].get_glyph_counts(adapter)[cell_idx][slot_option_glyph];
 
-                    // If this word contains a glyph in the crossing cell that doesn't correspond to
-                    // any options available in this cell, we need to eliminate it as an option.
-                    if number_of_matching_options == 0 {
-                        eliminate_word(
-                            &mut slot_states,
-                            other_slot_id,
-                            slot_option_word_id,
-                            Some(other_slot_cell),
-                        )?;
+                        // If this word contains a glyph in the crossing cell that doesn't correspond to
+                        // any options available in this cell, we need to eliminate it as an option.
+                        if number_of_matching_options == 0 {
+                            eliminate_word(
+                                &mut slot_states,
+                                other_slot_id,
+                                slot_option_word_id,
+                                Some(other_slot_cell),
+                            )?;
+                        }
                     }
                 }
             }
@@ -567,11 +560,8 @@ pub fn establish_arc_consistency_for_static_grid(
             config.slot_configs[slot_id]
                 .crossings
                 .iter()
-                .filter(|crossing| {
-                    crossing
-                        .as_ref()
-                        .map_or(false, |crossing| !fixed_slots[crossing.other_slot_id])
-                })
+                .flat_map(|crossings| crossings.iter())
+                .filter(|crossing| !fixed_slots[crossing.other_slot_id])
                 .count() as f32
         })
         .collect();
