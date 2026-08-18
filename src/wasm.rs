@@ -157,15 +157,15 @@ impl WasmSolver {
         serde_json::to_string(&results).map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
-    pub fn validate_candidate(&mut self, slot_id: usize, word: &str, fill_json: &str) -> bool {
+    pub fn validate_candidate(&mut self, slot_id: usize, word: &str, fill_json: &str) -> Option<String> {
         let word_list = match &mut self.word_list {
             Some(wl) => wl,
-            None => return false,
+            None => return None,
         };
         
         let fill_map: HashMap<String, String> = match serde_json::from_str(fill_json) {
             Ok(m) => m,
-            Err(_) => return false,
+            Err(_) => return None,
         };
             
         let mut fill: Vec<Option<GlyphId>> = vec![None; self.cell_names.len()];
@@ -179,7 +179,7 @@ impl WasmSolver {
         
         let slot_config = &self.slot_configs[slot_id];
         if slot_config.length != word.chars().count() {
-            return false;
+            return None;
         }
         
         for (char_idx, c) in word.chars().enumerate() {
@@ -209,6 +209,16 @@ impl WasmSolver {
             abort: None,
         };
         
-        find_fill(&config, None, None).is_ok()
+        match find_fill(&config, None, None) {
+            Ok(success) => {
+                let mut words_by_slot = vec![String::new(); self.slot_configs.len()];
+                for choice in &success.choices {
+                    let word = &word_list.words[self.slot_configs[choice.slot_id].length][choice.word_id];
+                    words_by_slot[choice.slot_id] = word.normalized_string.clone();
+                }
+                serde_json::to_string(&words_by_slot).ok()
+            }
+            Err(_) => None,
+        }
     }
 }

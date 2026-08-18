@@ -9,6 +9,7 @@ self.onmessage = async (e) => {
     switch (type) {
         case "INIT":
             try {
+                currentValidationTaskId++; // Abort any ongoing validation loops
                 await init();
                 solver = new WasmSolver(payload.slotsDef);
                 solver.set_min_score(payload.minScore);
@@ -53,13 +54,15 @@ self.onmessage = async (e) => {
                 if (idx >= options.length) return;
                 
                 const word = options[idx];
-                const isFillable = solver.validate_candidate(slotId, word, fillJson);
+                const solutionJson = solver.validate_candidate(slotId, word, fillJson);
+                const solution = solutionJson ? JSON.parse(solutionJson) : null;
+                const isFillable = !!solution;
                 
                 if (taskId !== currentValidationTaskId) return;
                 
                 self.postMessage({
                     type: "VALIDATION_RESULT",
-                    payload: { word, isFillable, slotId }
+                    payload: { word, isFillable, slotId, solution }
                 });
                 
                 idx++;

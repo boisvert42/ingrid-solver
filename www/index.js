@@ -24,6 +24,9 @@ let dictContents = "";
 let activeCandidates = [];
 let lastFillTime = 0;
 let initialCellValues = {};
+let cachedSolutions = [];
+let lastFilledSlotId = null;
+let shouldJumpAfterAC3 = false;
 
 // Initialize background solver Web Worker
 const worker = new Worker("solver-worker.js", { type: "module" });
@@ -37,6 +40,14 @@ worker.onmessage = (e) => {
             cellNames = payload.cellNames;
             slotConfigs = payload.slotConfigs;
             initialCellValues = payload.initialCellValues;
+            
+            // Reset state from previous runs
+            activeSlotId = null;
+            remainingOptions = [];
+            activeCandidates = [];
+            cachedSolutions = [];
+            renderCandidates();
+            
             renderBoard();
             renderSlotsList();
             propagateConstraints();
@@ -70,15 +81,26 @@ worker.onmessage = (e) => {
                 }
             });
             
-            // Update active candidates list
-            if (activeSlotId !== null) {
-                updateActiveCandidates(remainingOptions[activeSlotId] || []);
+            if (shouldJumpAfterAC3) {
+                shouldJumpAfterAC3 = false;
+                const jumped = selectNextConstrainedSlot();
+                if (!jumped && activeSlotId !== null) {
+                    updateActiveCandidates(remainingOptions[activeSlotId] || []);
+                }
+            } else {
+                // Update active candidates list
+                if (activeSlotId !== null) {
+                    updateActiveCandidates(remainingOptions[activeSlotId] || []);
+                }
             }
             break;
             
         case "VALIDATION_RESULT":
-            const { word, isFillable, slotId } = payload;
+            const { word, isFillable, slotId, solution } = payload;
             if (slotId !== activeSlotId) return;
+            if (isFillable && solution) {
+                cachedSolutions.push(solution);
+            }
             handleValidationResult(word, isFillable);
             break;
             
@@ -162,7 +184,7 @@ function renderBoard() {
             input.dataset.charIdx = charIdx;
             
             if (initialCellValues[cellName]) {
-                input.value = initialCellValues[cellName];
+                input.value = initialCellValues[cellName].toLowerCase();
             }
             
             // Sync values across all cells sharing this name
@@ -280,7 +302,8 @@ function renderSlotsList() {
 }
 
 // Select a word slot
-function selectSlot(slotId) {
+function selectSlot(slotId, force = false) {
+    if (activeSlotId === slotId && !force) return;
     activeSlotId = slotId;
     
     // Update active class in slots list
@@ -306,7 +329,7 @@ function getBoardFill() {
     const fill = {};
     cellNames.forEach(name => {
         const inp = document.querySelector(`input[data-cell="${name}"]`);
-        const val = inp ? inp.value : "";
+        const val = inp ? inp.value.toLowerCase() : "";
         if (val && val.length > 0) {
             fill[name] = val;
         }
@@ -314,8 +337,25 @@ function getBoardFill() {
     return fill;
 }
 
+// Filter cached solutions to keep only those compatible with the current board fill
+function filterCachedSolutions() {
+    const fill = getBoardFill();
+    cachedSolutions = cachedSolutions.filter(sol => {
+        return slotConfigs.every(slot => {
+            const solWord = sol[slot.id];
+            if (!solWord) return true;
+            return slot.cells.every((cellName, charIdx) => {
+                const fillLetter = fill[cellName];
+                if (!fillLetter) return true; // Empty cell is compatible
+                return solWord[charIdx].toLowerCase() === fillLetter.toLowerCase();
+            });
+        });
+    });
+}
+
 // Run AC-3 constraint propagation in worker thread
 function propagateConstraints() {
+    filterCachedSolutions(); // Keep compatible solutions, discard incompatible ones
     const fill = getBoardFill();
     worker.postMessage({
         type: "RUN_AC3",
@@ -355,15 +395,40 @@ function renderCandidates() {
 function updateActiveCandidates(options) {
     worker.postMessage({ type: "STOP_VALIDATION" });
     
-    activeCandidates = options.map((word, idx) => ({ word, state: "pending", element: null, originalIdx: idx }));
+    const knownValidWords = new Set();
+    cachedSolutions.forEach(sol => {
+        if (sol && sol[activeSlotId]) {
+            knownValidWords.add(sol[activeSlotId].toLowerCase());
+        }
+    });
+    
+    activeCandidates = options.map((word, idx) => {
+        const isValid = knownValidWords.has(word.toLowerCase());
+        return {
+            word,
+            state: isValid ? "valid" : "pending",
+            element: null,
+            originalIdx: idx
+        };
+    });
+    
+    // Sort valid ones first, maintaining original score order (originalIdx)
+    activeCandidates.sort((a, b) => {
+        if (a.state === "valid" && b.state !== "valid") return -1;
+        if (a.state !== "valid" && b.state === "valid") return 1;
+        return a.originalIdx - b.originalIdx;
+    });
+    
     renderCandidates();
     
-    if (activeSlotId !== null && activeCandidates.length > 0) {
+    const needsValidation = options.filter(word => !knownValidWords.has(word.toLowerCase()));
+    
+    if (activeSlotId !== null && needsValidation.length > 0) {
         worker.postMessage({
             type: "START_VALIDATION",
             payload: {
                 slotId: activeSlotId,
-                options: options,
+                options: needsValidation,
                 fillJson: JSON.stringify(getBoardFill())
             }
         });
@@ -451,10 +516,11 @@ function selectNextConstrainedSlot() {
 // Autofill a slot with a word selection
 function fillSlot(slotId, word) {
     const now = Date.now();
-    if (now - lastFillTime < 300) {
-        return; // Ignore double clicks/taps within 300ms
+    if (slotId === lastFilledSlotId && now - lastFillTime < 300) {
+        return; // Ignore double clicks/taps within 300ms on the same slot
     }
     lastFillTime = now;
+    lastFilledSlotId = slotId;
 
     const slot = slotConfigs[slotId];
     for (let i = 0; i < slot.cells.length; i++) {
@@ -465,11 +531,10 @@ function fillSlot(slotId, word) {
         });
     }
     
+    shouldJumpAfterAC3 = true;
+    
     // Propagate constraint changes
     propagateConstraints();
-    
-    // Jump to the most constrained incomplete slot
-    selectNextConstrainedSlot();
 }
 
 // Event Listeners
