@@ -9,6 +9,7 @@ self.onmessage = async (e) => {
     switch (type) {
         case "INIT":
             try {
+                currentValidationTaskId++; // Abort any ongoing validation loops
                 await init();
                 solver = new WasmSolver(payload.slotsDef);
                 solver.set_min_score(payload.minScore);

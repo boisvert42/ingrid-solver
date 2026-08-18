@@ -37,6 +37,13 @@ worker.onmessage = (e) => {
             cellNames = payload.cellNames;
             slotConfigs = payload.slotConfigs;
             initialCellValues = payload.initialCellValues;
+            
+            // Reset state from previous runs
+            activeSlotId = null;
+            remainingOptions = [];
+            activeCandidates = [];
+            renderCandidates();
+            
             renderBoard();
             renderSlotsList();
             propagateConstraints();
@@ -162,7 +169,7 @@ function renderBoard() {
             input.dataset.charIdx = charIdx;
             
             if (initialCellValues[cellName]) {
-                input.value = initialCellValues[cellName];
+                input.value = initialCellValues[cellName].toLowerCase();
             }
             
             // Sync values across all cells sharing this name
@@ -306,7 +313,7 @@ function getBoardFill() {
     const fill = {};
     cellNames.forEach(name => {
         const inp = document.querySelector(`input[data-cell="${name}"]`);
-        const val = inp ? inp.value : "";
+        const val = inp ? inp.value.toLowerCase() : "";
         if (val && val.length > 0) {
             fill[name] = val;
         }
