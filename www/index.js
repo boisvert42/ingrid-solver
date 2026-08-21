@@ -17,6 +17,15 @@ const activeDictLabel = document.getElementById("active-dict-label");
 const activeScoreLabel = document.getElementById("active-score-label");
 const undoBtn = document.getElementById("undo-btn");
 const copyBtn = document.getElementById("copy-btn");
+const activePuzzleLabel = document.getElementById("active-puzzle-label");
+const puzzleNameInput = document.getElementById("puzzle-name-input");
+const loadPuzzleSelect = document.getElementById("load-puzzle-select");
+const puzzleNameGroup = document.getElementById("puzzle-name-group");
+const slotsGroup = document.getElementById("slots-group");
+const tabLoadBtn = document.getElementById("tab-load-btn");
+const tabNewBtn = document.getElementById("tab-new-btn");
+const tabContentLoad = document.getElementById("tab-content-load");
+const tabContentNew = document.getElementById("tab-content-new");
 
 let cellNames = [];
 let slotConfigs = [];
@@ -27,6 +36,8 @@ let activeCandidates = [];
 let lastFillTime = 0;
 let initialCellValues = {};
 let undoHistory = [];
+let activePuzzleName = "";
+let activeTab = "load";
 
 // Initialize background solver Web Worker
 const worker = new Worker("solver-worker.js", { type: "module" });
@@ -101,15 +112,64 @@ worker.onmessage = (e) => {
     }
 };
 
-// Initialize Wasm module by downloading default word list
+// Initialize Wasm module by downloading default word list or loading from IndexedDB/localStorage
 async function run() {
     try {
-        statusDiv.textContent = "Status: Downloading default dictionary...";
-        const response = await fetch("../resources/spreadthewordlist.dict");
-        if (!response.ok) {
-            throw new Error(`Failed to load dictionary: ${response.statusText}`);
+        cleanOldSaves();
+        populateLoadDropdown();
+
+        // Find the last active puzzle
+        const lastActive = localStorage.getItem("ingrid_last_active_puzzle");
+        const puzzles = getSavedPuzzles();
+        let activePuzzle = null;
+
+        if (lastActive && puzzles[lastActive]) {
+            activePuzzle = puzzles[lastActive];
+            activePuzzleName = lastActive;
+        } else {
+            // Default to the newest puzzle if lastActive is missing or invalid
+            const sortedNames = Object.keys(puzzles).sort((a, b) => puzzles[b].timestamp - puzzles[a].timestamp);
+            if (sortedNames.length > 0) {
+                activePuzzleName = sortedNames[0];
+                activePuzzle = puzzles[activePuzzleName];
+            }
         }
-        dictContents = await response.text();
+
+        if (activePuzzle) {
+            puzzleNameInput.value = activePuzzleName;
+            activePuzzleLabel.textContent = activePuzzleName;
+            slotsInput.value = activePuzzle.slotsDef;
+            minScoreInput.value = activePuzzle.minScore;
+            activeScoreLabel.textContent = activePuzzle.minScore;
+            uploadedDictName.textContent = activePuzzle.dictName || "spreadthewordlist.dict";
+            activeDictLabel.textContent = activePuzzle.dictName || "spreadthewordlist.dict";
+        } else {
+            // No saved puzzles, initialize a default name
+            const defaultName = generateDefaultPuzzleName();
+            puzzleNameInput.value = defaultName;
+            activePuzzleLabel.textContent = defaultName;
+        }
+
+        const dictToLoad = activePuzzle ? (activePuzzle.dictName || "spreadthewordlist.dict") : "spreadthewordlist.dict";
+
+        if (dictToLoad && dictToLoad !== "spreadthewordlist.dict") {
+            // Fallback to default but alert user
+            statusDiv.textContent = `Status: Custom list "${dictToLoad}" not persisted. Downloading default...`;
+            const response = await fetch("../resources/spreadthewordlist.dict");
+            if (!response.ok) {
+                throw new Error(`Failed to load dictionary: ${response.statusText}`);
+            }
+            dictContents = await response.text();
+            uploadedDictName.textContent = "spreadthewordlist.dict";
+            activeDictLabel.textContent = "spreadthewordlist.dict";
+        } else {
+            statusDiv.textContent = "Status: Downloading default dictionary...";
+            const response = await fetch("../resources/spreadthewordlist.dict");
+            if (!response.ok) {
+                throw new Error(`Failed to load dictionary: ${response.statusText}`);
+            }
+            dictContents = await response.text();
+        }
 
         statusDiv.textContent = "Status: Ready! Click 'Initialize Solver'.";
         initBtn.disabled = false;
@@ -129,9 +189,51 @@ function initializeSolver() {
         return;
     }
 
-    statusDiv.textContent = "Status: Initializing solver in background...";
-    const slotsDef = slotsInput.value;
+    let name = "";
+    let slotsDef = "";
     const minScore = parseInt(minScoreInput.value) || 0;
+
+    if (activeTab === "load") {
+        name = loadPuzzleSelect.value;
+        if (!name) {
+            statusDiv.textContent = "Status: Please select a puzzle to load, or switch to the 'Create New' tab.";
+            return;
+        }
+        const puzzles = getSavedPuzzles();
+        const puzzle = puzzles[name];
+        if (!puzzle) {
+            statusDiv.textContent = "Status: Selected puzzle not found in saves.";
+            return;
+        }
+        slotsDef = puzzle.slotsDef;
+    } else {
+        name = puzzleNameInput.value.trim();
+        if (!name) {
+            name = generateDefaultPuzzleName();
+            puzzleNameInput.value = name;
+        }
+        slotsDef = slotsInput.value;
+    }
+
+    activePuzzleName = name;
+    activePuzzleLabel.textContent = name;
+
+    statusDiv.textContent = "Status: Initializing solver in background...";
+
+    const puzzles = getSavedPuzzles();
+    const existing = puzzles[name];
+    let fills = {};
+    if (existing && existing.slotsDef === slotsDef) {
+        fills = existing.fills || {};
+    }
+
+    // Save initial puzzle state
+    savePuzzleState(name, {
+        slotsDef,
+        minScore,
+        dictName: uploadedDictName.textContent,
+        fills
+    });
 
     worker.postMessage({
         type: "INIT",
@@ -143,6 +245,10 @@ function initializeSolver() {
 // Render cells on the board by word slots
 function renderBoard() {
     cellsBoard.innerHTML = "";
+
+    const puzzles = getSavedPuzzles();
+    const puzzle = puzzles[activePuzzleName] || {};
+    const savedFills = puzzle.fills || {};
 
     slotConfigs.forEach(slot => {
         const row = document.createElement("div");
@@ -173,8 +279,10 @@ function renderBoard() {
             input.dataset.slotId = slot.id;
             input.dataset.charIdx = charIdx;
 
-            if (initialCellValues[cellName]) {
-                input.value = initialCellValues[cellName];
+            if (savedFills[cellName] !== undefined) {
+                input.value = savedFills[cellName].toLowerCase();
+            } else if (initialCellValues[cellName]) {
+                input.value = initialCellValues[cellName].toLowerCase();
             }
 
             // Sync values across all cells sharing this name
@@ -395,7 +503,7 @@ function copyFill() {
         }, 1500);
     }).catch(err => {
         console.error("Failed to copy text: ", err);
-        alert("Failed to copy fill to clipboard.");
+        statusDiv.textContent = "Status: Failed to copy fill to clipboard.";
     });
 }
 
@@ -407,6 +515,7 @@ function propagateConstraints() {
         payload: { fillJson: JSON.stringify(fill) }
     });
     updateCopyButton();
+    saveCurrentPuzzleProgress();
 }
 
 // Render candidates based on activeCandidates array
@@ -597,6 +706,23 @@ minScoreInput.addEventListener("change", (e) => {
 // Modal Event Listeners
 openSettingsBtn.addEventListener("click", () => {
     settingsModal.classList.add("open");
+    if (activePuzzleName && getSavedPuzzles()[activePuzzleName]) {
+        activeTab = "load";
+        tabLoadBtn.classList.add("active");
+        tabNewBtn.classList.remove("active");
+        tabContentLoad.classList.add("active");
+        tabContentNew.classList.remove("active");
+        loadPuzzleSelect.value = activePuzzleName;
+    } else {
+        activeTab = "new";
+        tabNewBtn.classList.add("active");
+        tabLoadBtn.classList.remove("active");
+        tabContentNew.classList.add("active");
+        tabContentLoad.classList.remove("active");
+        if (!puzzleNameInput.value) {
+            puzzleNameInput.value = generateDefaultPuzzleName();
+        }
+    }
 });
 
 const closeModal = () => {
@@ -607,6 +733,116 @@ const closeModal = () => {
 
 cancelSettingsBtn.addEventListener("click", closeModal);
 closeModalX.addEventListener("click", closeModal);
+
+loadPuzzleSelect.addEventListener("change", (e) => {
+    const name = e.target.value;
+    if (!name) return;
+    
+    const puzzles = getSavedPuzzles();
+    const puzzle = puzzles[name];
+    if (puzzle) {
+        puzzleNameInput.value = name;
+        slotsInput.value = puzzle.slotsDef;
+        minScoreInput.value = puzzle.minScore;
+        
+        if (puzzle.dictName) {
+            uploadedDictName.textContent = puzzle.dictName;
+        }
+    }
+});
+
+tabLoadBtn.addEventListener("click", () => {
+    activeTab = "load";
+    tabLoadBtn.classList.add("active");
+    tabNewBtn.classList.remove("active");
+    tabContentLoad.classList.add("active");
+    tabContentNew.classList.remove("active");
+});
+
+tabNewBtn.addEventListener("click", () => {
+    activeTab = "new";
+    tabNewBtn.classList.add("active");
+    tabLoadBtn.classList.remove("active");
+    tabContentNew.classList.add("active");
+    tabContentLoad.classList.remove("active");
+});
+
+// Helper to generate a puzzle name with timestamp
+function generateDefaultPuzzleName() {
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const yyyy = now.getFullYear();
+    const mm = pad(now.getMonth() + 1);
+    const dd = pad(now.getDate());
+    const hh = pad(now.getHours());
+    const min = pad(now.getMinutes());
+    const ss = pad(now.getSeconds());
+    return `Untitled puzzle ${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
+}
+
+// LocalStorage helpers for saved states
+const SAVES_KEY = "ingrid_saved_puzzles";
+const LAST_ACTIVE_KEY = "ingrid_last_active_puzzle";
+
+function getSavedPuzzles() {
+    try {
+        return JSON.parse(localStorage.getItem(SAVES_KEY) || "{}");
+    } catch (e) {
+        console.error(e);
+        return {};
+    }
+}
+
+function savePuzzleState(puzzleName, state) {
+    const puzzles = getSavedPuzzles();
+    puzzles[puzzleName] = {
+        ...state,
+        timestamp: Date.now()
+    };
+    localStorage.setItem(SAVES_KEY, JSON.stringify(puzzles));
+    localStorage.setItem(LAST_ACTIVE_KEY, puzzleName);
+    populateLoadDropdown();
+}
+
+function cleanOldSaves() {
+    const puzzles = getSavedPuzzles();
+    const now = Date.now();
+    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+    let changed = false;
+    for (const name in puzzles) {
+        if (now - puzzles[name].timestamp > thirtyDaysMs) {
+            delete puzzles[name];
+            changed = true;
+        }
+    }
+    if (changed) {
+        localStorage.setItem(SAVES_KEY, JSON.stringify(puzzles));
+    }
+}
+
+function populateLoadDropdown() {
+    loadPuzzleSelect.innerHTML = '<option value="">-- Select a puzzle --</option>';
+    const puzzles = getSavedPuzzles();
+    const sortedNames = Object.keys(puzzles).sort((a, b) => puzzles[b].timestamp - puzzles[a].timestamp);
+    
+    sortedNames.forEach(name => {
+        const opt = document.createElement("option");
+        opt.value = name;
+        opt.textContent = name;
+        loadPuzzleSelect.appendChild(opt);
+    });
+}
+
+function saveCurrentPuzzleProgress() {
+    if (!activePuzzleName) return;
+    
+    savePuzzleState(activePuzzleName, {
+        slotsDef: slotsInput.value,
+        minScore: minScoreInput.value,
+        dictName: uploadedDictName.textContent,
+        fills: getBoardFill()
+    });
+}
 
 // Start
 run();

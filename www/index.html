@@ -487,6 +487,42 @@
             white-space: nowrap;
             max-width: 160px;
         }
+
+        /* Modal Tabs styles */
+        .modal-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 16px;
+            gap: 8px;
+        }
+        .modal-tab-btn {
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid transparent;
+            color: var(--text-muted);
+            border-radius: 0;
+            padding: 8px 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .modal-tab-btn:hover {
+            color: var(--text-color);
+            background: transparent;
+        }
+        .modal-tab-btn.active {
+            color: var(--accent-color);
+            border-bottom-color: var(--accent-color);
+            background: transparent;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
     </style>
 </head>
 <body>
@@ -505,6 +541,10 @@
             <div class="section-title">Configuration</div>
 
             <div class="active-config-card">
+                <div class="active-config-item">
+                    <span style="color: var(--text-muted);">Puzzle Name:</span>
+                    <span class="active-config-value" id="active-puzzle-label" style="max-width: 140px;">Untitled puzzle...</span>
+                </div>
                 <div class="active-config-item">
                     <span style="color: var(--text-muted);">Dictionary:</span>
                     <span class="active-config-value" id="active-dict-label">spreadthewordlist.dict</span>
@@ -553,9 +593,31 @@
                 <button class="modal-close-btn" id="close-modal-x">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="form-group">
-                    <label for="slots-input">Slots Definition</label>
-                    <textarea id="slots-input" style="min-height: 150px;">a b c ;
+                <div class="modal-tabs">
+                    <button class="modal-tab-btn active" id="tab-load-btn" type="button">Load Saved Puzzle</button>
+                    <button class="modal-tab-btn" id="tab-new-btn" type="button">Create New Puzzle</button>
+                </div>
+
+                <!-- Tab content for loading saved puzzle -->
+                <div class="tab-content active" id="tab-content-load">
+                    <div class="form-group">
+                        <label for="load-puzzle-select">Load Saved Puzzle</label>
+                        <select id="load-puzzle-select" style="padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); background-color: var(--bg-color); color: var(--text-color); font-size: 0.875rem;">
+                            <option value="">-- Select a puzzle --</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Tab content for creating new puzzle -->
+                <div class="tab-content" id="tab-content-new">
+                    <div class="form-group" id="puzzle-name-group">
+                        <label for="puzzle-name-input">Puzzle Name</label>
+                        <input type="text" id="puzzle-name-input" placeholder="Untitled puzzle..." style="padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); background-color: var(--bg-color); color: var(--text-color); font-size: 0.875rem;" />
+                    </div>
+
+                    <div class="form-group" id="slots-group">
+                        <label for="slots-input">Slots Definition</label>
+                        <textarea id="slots-input" style="min-height: 150px;">a b c ;
 e f g h ;
 j k l m n ;
 q r s t ;
@@ -570,20 +632,24 @@ b g m t ;
 a f l s z ;
 e k r y ;
 j q x ;</textarea>
-                </div>
-
-                <div class="form-group" style="gap: 8px;">
-                    <label>Dictionary File</label>
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <button id="upload-btn" style="background-color: var(--panel-bg); border: 1px solid var(--border-color); color: var(--text-color); padding: 8px 12px; font-size: 0.8rem;">Upload Custom List</button>
-                        <input type="file" id="dict-file-input" accept=".dict,.txt" style="display: none;" />
-                        <span id="uploaded-dict-name" style="font-size: 0.75rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 250px;">spreadthewordlist.dict</span>
                     </div>
                 </div>
 
-                <div class="form-group">
-                    <label for="min-score-input">Minimum Word Score</label>
-                    <input type="number" id="min-score-input" value="50" min="0" max="100" style="width: 80px; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); background-color: var(--bg-color); color: var(--text-color); font-size: 0.875rem;" />
+                <!-- Common settings below tabs -->
+                <div style="margin-top: 16px; display: flex; flex-direction: column; gap: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+                    <div class="form-group" style="gap: 8px;">
+                        <label>Dictionary File</label>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <button id="upload-btn" style="background-color: var(--panel-bg); border: 1px solid var(--border-color); color: var(--text-color); padding: 8px 12px; font-size: 0.8rem;">Upload Custom List</button>
+                            <input type="file" id="dict-file-input" accept=".dict,.txt" style="display: none;" />
+                            <span id="uploaded-dict-name" style="font-size: 0.75rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 250px;">spreadthewordlist.dict</span>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="min-score-input">Minimum Word Score</label>
+                        <input type="number" id="min-score-input" value="50" min="0" max="100" style="width: 80px; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); background-color: var(--bg-color); color: var(--text-color); font-size: 0.875rem;" />
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">
