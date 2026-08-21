@@ -152,6 +152,22 @@
             background-color: var(--accent-hover);
         }
 
+        button:disabled {
+            background-color: var(--border-color);
+            color: var(--text-muted);
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        #copy-btn:not(:disabled) {
+            background-color: #10b981;
+            color: white;
+        }
+
+        #copy-btn:not(:disabled):hover {
+            background-color: #059669;
+        }
+
         .section-title {
             font-size: 0.9rem;
             text-transform: uppercase;
@@ -476,7 +492,11 @@
 <body>
     <header>
         <h1>Ingrid Variety Constructor</h1>
-        <div id="status" style="font-size: 0.875rem; color: var(--text-muted);">Status: Loading WebAssembly...</div>
+        <div style="display: flex; align-items: center; gap: 16px;">
+            <button id="undo-btn" disabled style="padding: 6px 12px; font-size: 0.8rem;">Undo</button>
+            <button id="copy-btn" disabled style="padding: 6px 12px; font-size: 0.8rem;">Copy Fill</button>
+            <div id="status" style="font-size: 0.875rem; color: var(--text-muted);">Status: Loading WebAssembly...</div>
+        </div>
     </header>
 
     <div class="main-container">
