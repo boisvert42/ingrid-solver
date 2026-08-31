@@ -1230,11 +1230,11 @@ mod tests {
             render_grid(&grid_config.to_config_ref(), &result_1.choices),
             indoc! {"
             .ass...
-            .glib..
-            alamosa
+            .elis..
+            adamite
             retiree
-            reelers
-            ..seat.
+            useless
+            ..sent.
             ...sss.
             "}
             .trim()
@@ -1263,11 +1263,11 @@ mod tests {
             render_grid(&grid_config.to_config_ref(), &result_2.choices),
             indoc! {"
             .ass...
-            .glia..
-            glamper
+            .ilia..
+            cramped
             retinas
-            reelers
-            ..sean.
+            ireless
+            ..seat.
             ...sss.
             "}
             .trim()
