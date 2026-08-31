@@ -11,13 +11,11 @@
 //!
 //! We keep applying these rules until no more eliminations are possible.
 
-use float_ord::FloatOrd;
-use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::fmt::Debug;
 
 use crate::grid_config::{CrossingId, GridConfig, SlotConfig, SlotId};
-use crate::types::WordId;
+use crate::types::{GlyphId, WordId};
 use crate::util::{build_glyph_counts_by_cell, GlyphCountsByCell};
 use crate::word_list::WordList;
 
@@ -136,10 +134,6 @@ struct ArcConsistencySlotState<'a> {
     /// place.
     glyph_counts_by_cell: Option<GlyphCountsByCell>,
 
-    /// A set of cell indices that we need to propagate *outward* from, removing any incompatible
-    /// options from the crossing entry.
-    queued_cell_idxs: Option<Vec<usize>>,
-
     /// Do we need to do singleton propagation (e.g., uniqueness checks) from this slot? This can
     /// only be true if the slot has exactly one entry and we've never done this propagation from
     /// it.
@@ -176,11 +170,11 @@ pub fn establish_arc_consistency<Adapter: ArcConsistencyAdapter>(
 
     // For each crossing, what "weight" value has been assigned to it so far? A higher weight means
     // the crossing has been more difficult to satisfy.
-    crossing_weights: &[f32],
+    _crossing_weights: &[f32],
 
     // For each slot, what "weight" value has been assigned to it so far? A higher weight means
     // the slot's currently-unfilled crossings have been more difficult to satisfy.
-    slot_weights: &[f32],
+    _slot_weights: &[f32],
 
     // For each slot, should its value be considered "fixed", meaning that its single option can't
     // be eliminated? This is true of slots that are prefilled and slots that we've made a choice
@@ -209,15 +203,16 @@ pub fn establish_arc_consistency<Adapter: ArcConsistencyAdapter>(
                 blame_counts: vec![0; slot_config.length],
                 option_count: initial_option_counts[slot_config.id],
                 glyph_counts_by_cell: None,
-                queued_cell_idxs: None,
                 needs_singleton_propagation: false,
             }
         })
         .collect();
 
+    let mut depleted_glyphs: Vec<(SlotId, usize, GlyphId)> = Vec::new();
+
     // If we were given an `evaluating_slot`, we can assume that the rest of the grid is fully
-    // arc-consistent and start by just queueing the cells of this slot. Otherwise, we want to
-    // examine the whole grid, except slots that are fixed already.
+    // arc-consistent and start by checking depleted glyphs in this slot. Otherwise, we examine
+    // the whole grid.
     let initial_slot_ids: Vec<SlotId> = evaluating_slot.map_or_else(
         || (0..config.slot_configs.len()).collect(),
         |evaluating_slot| vec![evaluating_slot],
@@ -230,22 +225,24 @@ pub fn establish_arc_consistency<Adapter: ArcConsistencyAdapter>(
             });
         }
 
-        // Queue all cells that have a crossing with a non-fixed slot.
-        slot_states[slot_id].queued_cell_idxs = Some(
-            config.slot_configs[slot_id]
-                .crossings
-                .iter()
-                .enumerate()
-                .filter(|(_, crossing_list)| {
-                    crossing_list.iter().any(|crossing| !fixed_slots[crossing.other_slot_id])
-                })
-                .map(|(cell_idx, _)| cell_idx)
-                .collect(),
-        );
-
         // If this slot has a single option, we also want to remove dupes from other slots.
         if slot_states[slot_id].option_count == 1 {
             slot_states[slot_id].needs_singleton_propagation = true;
+        }
+
+        let slot_config = &config.slot_configs[slot_id];
+        for cell_idx in 0..slot_config.length {
+            if slot_config.crossings[cell_idx]
+                .iter()
+                .any(|crossing| !fixed_slots[crossing.other_slot_id])
+            {
+                let counts = &slot_states[slot_id].get_glyph_counts(adapter)[cell_idx];
+                for (glyph_id, &count) in counts.iter().enumerate() {
+                    if count == 0 {
+                        depleted_glyphs.push((slot_id, cell_idx, glyph_id));
+                    }
+                }
+            }
         }
     }
 
@@ -259,9 +256,10 @@ pub fn establish_arc_consistency<Adapter: ArcConsistencyAdapter>(
             .expect("fixed slot must have exactly one option");
     }
 
-    // Whenever we eliminate an option from a slot, we need to do some bookkeeping and potentially
-    // enqueue cells from that slot for further propagation.
+    // Whenever we eliminate an option from a slot, we need to do some bookkeeping and
+    // enqueue newly depleted glyphs for further propagation.
     let eliminate_word = |slot_states: &mut [ArcConsistencySlotState],
+                          depleted_glyphs: &mut Vec<(SlotId, usize, GlyphId)>,
                           slot_id: SlotId,
                           word_id: WordId,
                           blamed_cell_idx: Option<usize>|
@@ -314,8 +312,7 @@ pub fn establish_arc_consistency<Adapter: ArcConsistencyAdapter>(
         }
 
         // Now we need to go through the letters of this word and decrement the glyph count for each
-        // one. If any of them reach 0, and the crossing slot has a corresponding non-zero count, we
-        // need to enqueue this cell to remove the no-longer-valid options from the crossing slot.
+        // one. If any of them reach 0, enqueue that (slot_id, cell_idx, glyph_id) event for propagation.
         for cell_idx in 0..slot_config.length {
             let glyph_id = config.word_list.words[slot_config.length][word_id].glyphs[cell_idx];
 
@@ -324,37 +321,12 @@ pub fn establish_arc_consistency<Adapter: ArcConsistencyAdapter>(
 
             glyph_counts_for_cell[glyph_id] -= 1;
 
-            // If the reason we're removing this word is that it conflicted with this crossing slot,
-            // we don't need to enqueue it because we already know the crossing doesn't have any
-            // matching options.
             if blamed_cell_idx == Some(cell_idx) {
                 continue;
             }
 
-            // Otherwise, if this was the last word in the slot that contained this
-            // glyph in this position, and there's a crossing entry that has at least one option
-            // relying on the glyph, enqueue the cell so that we can propagate the impact further.
             if glyph_counts_for_cell[glyph_id] == 0 {
-                for crossing in &slot_config.crossings[cell_idx] {
-                    if fixed_slots[crossing.other_slot_id] {
-                        continue;
-                    }
-
-                    let crossing_glyph_count = slot_states[crossing.other_slot_id]
-                        .get_glyph_counts(adapter)[crossing.other_slot_cell][glyph_id];
-
-                    if crossing_glyph_count > 0 {
-                        if slot_states[slot_id].queued_cell_idxs.is_none() {
-                            slot_states[slot_id].queued_cell_idxs =
-                                Some(Vec::with_capacity(slot_config.length));
-                        }
-                        let queued_cell_idxs = slot_states[slot_id].queued_cell_idxs.as_mut().unwrap();
-
-                        if !queued_cell_idxs.contains(&cell_idx) {
-                            queued_cell_idxs.push(cell_idx);
-                        }
-                    }
-                }
+                depleted_glyphs.push((slot_id, cell_idx, glyph_id));
             }
         }
 
@@ -378,79 +350,45 @@ pub fn establish_arc_consistency<Adapter: ArcConsistencyAdapter>(
     // the overall process.
     //
     loop {
-        // First, run the AC-3 algorithm, propagating eliminations until the queue is empty.
-        loop {
-            // Identify the queued slot with the lowest `dom/wdeg`, based on our live domain sizes.
-            let slot_id = (0..config.slot_configs.len())
-                .filter(|&slot_id| slot_states[slot_id].queued_cell_idxs.is_some())
-                .min_by_key(|&slot_id| {
-                    FloatOrd((slot_states[slot_id].option_count as f32) / slot_weights[slot_id])
-                });
+        // First, propagate depleted glyph eliminations until the queue is empty.
+        while let Some((slot_id, cell_idx, glyph_id)) = depleted_glyphs.pop() {
+            for crossing in &config.slot_configs[slot_id].crossings[cell_idx] {
+                let other_slot_id = crossing.other_slot_id;
+                let other_slot_cell = crossing.other_slot_cell;
 
-            // If there are no queued slots left, we're done with this AC pass.
-            let Some(slot_id) = slot_id else {
-                break;
-            };
+                if fixed_slots[other_slot_id] {
+                    continue;
+                }
 
-            // We want to examine the slot's cells in descending order of crossing weight.
-            let mut cell_idxs = slot_states[slot_id].queued_cell_idxs.take().unwrap();
-            cell_idxs.sort_by_cached_key(|&cell_idx| {
-                let crossings = &config.slot_configs[slot_id].crossings[cell_idx];
-                let max_weight = crossings
-                    .iter()
-                    .map(|c| crossing_weights[c.crossing_id])
-                    .fold(0.0, f32::max);
-                Reverse(FloatOrd(max_weight))
-            });
+                let invalid_options = &config.slot_options_by_glyph[other_slot_id]
+                    [other_slot_cell][glyph_id];
 
-            // For each queued cell, go through the crossing slot's options and eliminate any that
-            // are incompatible with this slot's possible values.
-            for cell_idx in cell_idxs {
-                for crossing in &config.slot_configs[slot_id].crossings[cell_idx] {
-                    let other_slot_id = crossing.other_slot_id;
-                    let other_slot_cell = crossing.other_slot_cell;
-
-                    let other_slot_config = &config.slot_configs[other_slot_id];
-                    let other_slot_options = &config.slot_options[other_slot_id];
-
-                    for &slot_option_word_id in other_slot_options {
-                        // If this word has already been eliminated, we don't need to check it again.
-                        if adapter.is_word_eliminated(other_slot_id, slot_option_word_id)
-                            || slot_states[other_slot_id]
-                                .eliminations
-                                .contains(slot_option_word_id)
-                        {
-                            continue;
-                        }
-
-                        let slot_option_word =
-                            &config.word_list.words[other_slot_config.length][slot_option_word_id];
-                        let slot_option_glyph = slot_option_word.glyphs[other_slot_cell];
-
-                        let number_of_matching_options =
-                            slot_states[slot_id].get_glyph_counts(adapter)[cell_idx][slot_option_glyph];
-
-                        // If this word contains a glyph in the crossing cell that doesn't correspond to
-                        // any options available in this cell, we need to eliminate it as an option.
-                        if number_of_matching_options == 0 {
-                            eliminate_word(
-                                &mut slot_states,
-                                other_slot_id,
-                                slot_option_word_id,
-                                Some(other_slot_cell),
-                            )?;
-                        }
+                for &slot_option_word_id in invalid_options {
+                    if adapter.is_word_eliminated(other_slot_id, slot_option_word_id)
+                        || slot_states[other_slot_id]
+                            .eliminations
+                            .contains(slot_option_word_id)
+                    {
+                        continue;
                     }
+
+                    eliminate_word(
+                        &mut slot_states,
+                        &mut depleted_glyphs,
+                        other_slot_id,
+                        slot_option_word_id,
+                        Some(other_slot_cell),
+                    )?;
                 }
             }
         }
 
-        // Now, if any slots need singleton propagation, we'll need to deal with that.
+        // Now, if any slots need singleton propagation, we'll deal with that.
         let singleton_propagation_slot_ids: Vec<SlotId> = slot_states
             .iter_mut()
             .filter(|slot_state| slot_state.needs_singleton_propagation)
             .map(|slot_state| {
-                slot_state.needs_singleton_propagation = false; // Reset flag on the way by
+                slot_state.needs_singleton_propagation = false;
                 slot_state.slot_id
             })
             .collect();
@@ -480,7 +418,13 @@ pub fn establish_arc_consistency<Adapter: ArcConsistencyAdapter>(
                             && dupe_ids.contains(&word_id)
                             && !slot_states[other_slot_id].eliminations.contains(word_id)
                         {
-                            eliminate_word(&mut slot_states, other_slot_id, word_id, None)?;
+                            eliminate_word(
+                                &mut slot_states,
+                                &mut depleted_glyphs,
+                                other_slot_id,
+                                word_id,
+                                None,
+                            )?;
                         }
                     }
                 }
@@ -492,11 +436,10 @@ pub fn establish_arc_consistency<Adapter: ArcConsistencyAdapter>(
             // unnecessary to recheck in the other direction.
         }
 
-        // If we no longer need either kind of propagation, we're done; otherwise, we return to the
-        // top of the loop.
-        if slot_states.iter().all(|slot_state| {
-            slot_state.queued_cell_idxs.is_none() && !slot_state.needs_singleton_propagation
-        }) {
+        // If we no longer need either kind of propagation, we're done; otherwise return to top of loop.
+        if depleted_glyphs.is_empty()
+            && slot_states.iter().all(|slot_state| !slot_state.needs_singleton_propagation)
+        {
             break;
         }
     }
