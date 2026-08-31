@@ -900,6 +900,33 @@ mod tests {
         );
     }
 
+    fn print_grid_config_memory(config: &OwnedGridConfig, label: &str) {
+        let total_word_ids: usize = config
+            .slot_options_by_glyph
+            .iter()
+            .flat_map(|slot| slot.iter())
+            .flat_map(|cell| cell.iter())
+            .map(|bucket| bucket.len())
+            .sum();
+
+        let total_vec_headers = config
+            .slot_options_by_glyph
+            .iter()
+            .flat_map(|slot| slot.iter())
+            .map(|cell| cell.len())
+            .sum::<usize>();
+
+        let bytes = (total_word_ids * std::mem::size_of::<crate::types::WordId>())
+            + (total_vec_headers * std::mem::size_of::<Vec<crate::types::WordId>>());
+
+        println!(
+            "[{label}] slot_options_by_glyph memory: {:.2} MB ({} word references, {} buckets)",
+            bytes as f64 / 1_048_576.0,
+            total_word_ids,
+            total_vec_headers,
+        );
+    }
+
     #[test]
     fn test_find_fill_for_6x6_square() {
         let grid_config = generate_config(
@@ -912,6 +939,8 @@ mod tests {
             ......
             ",
         );
+
+        print_grid_config_memory(&grid_config, "6x6 Square");
 
         let result =
             find_fill(&grid_config.to_config_ref(), None, None).expect("Failed to find a fill");
@@ -1094,6 +1123,8 @@ mod tests {
             ....#..........
             ",
         );
+
+        print_grid_config_memory(&grid_config, "15x15 Themeless");
 
         let result =
             find_fill(&grid_config.to_config_ref(), None, None).expect("Failed to find a fill");

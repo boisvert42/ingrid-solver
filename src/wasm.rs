@@ -126,12 +126,18 @@ impl WasmSolver {
         );
         
         crate::grid_config::sort_slot_options(word_list, &self.slot_configs, &mut slot_options);
+        let slot_options_by_glyph = crate::grid_config::build_slot_options_by_glyph(
+            word_list,
+            &self.slot_configs,
+            &slot_options,
+        );
         
         let config = GridConfig {
             word_list,
             fill: &fill,
             slot_configs: &self.slot_configs,
             slot_options: &slot_options,
+            slot_options_by_glyph: &slot_options_by_glyph,
             width: 1,
             height: 1,
             crossing_count: self.crossing_count,
@@ -197,12 +203,18 @@ impl WasmSolver {
         );
         
         crate::grid_config::sort_slot_options(word_list, &self.slot_configs, &mut slot_options);
+        let slot_options_by_glyph = crate::grid_config::build_slot_options_by_glyph(
+            word_list,
+            &self.slot_configs,
+            &slot_options,
+        );
         
         let config = GridConfig {
             word_list,
             fill: &fill,
             slot_configs: &self.slot_configs,
             slot_options: &slot_options,
+            slot_options_by_glyph: &slot_options_by_glyph,
             width: 1,
             height: 1,
             crossing_count: self.crossing_count,

@@ -140,6 +140,10 @@ pub struct GridConfig<'a> {
     /// and the existing letters filled into the grid.
     pub slot_options: &'a [Vec<WordId>],
 
+    /// A 4D index mapping `[slot_id][cell_index][glyph_id]` to `Vec<WordId>` of options
+    /// for that slot containing that glyph in that cell position.
+    pub slot_options_by_glyph: &'a [Vec<Vec<Vec<WordId>>>],
+
     /// The width and height of the grid.
     pub width: usize,
     pub height: usize,
@@ -157,6 +161,7 @@ pub struct OwnedGridConfig {
     pub fill: Vec<Option<GlyphId>>,
     pub slot_configs: Vec<SlotConfig>,
     pub slot_options: Vec<Vec<WordId>>,
+    pub slot_options_by_glyph: Vec<Vec<Vec<Vec<WordId>>>>,
     pub width: usize,
     pub height: usize,
     pub crossing_count: usize,
@@ -172,6 +177,7 @@ impl OwnedGridConfig {
             fill: &self.fill,
             slot_configs: &self.slot_configs,
             slot_options: &self.slot_options,
+            slot_options_by_glyph: &self.slot_options_by_glyph,
             width: self.width,
             height: self.height,
             crossing_count: self.crossing_count,
@@ -239,6 +245,34 @@ pub fn sort_slot_options(
                 + ((word.score as f32) * 5.0) as i64)
         });
     }
+}
+
+/// Given the slot configs and sorted slot options, generate an index mapping
+/// `[slot_id][cell_index][glyph_id]` to a `Vec<WordId>` of options for that slot that have
+/// that glyph at that cell position.
+#[must_use]
+pub fn build_slot_options_by_glyph(
+    word_list: &WordList,
+    slot_configs: &[SlotConfig],
+    slot_options: &[Vec<WordId>],
+) -> Vec<Vec<Vec<Vec<WordId>>>> {
+    slot_configs
+        .iter()
+        .map(|slot_config| {
+            let mut options_by_cell_and_glyph: Vec<Vec<Vec<WordId>>> = (0..slot_config.length)
+                .map(|_| vec![vec![]; word_list.glyphs.len()])
+                .collect();
+
+            for &word_id in &slot_options[slot_config.id] {
+                let word = &word_list.words[slot_config.length][word_id];
+                for (cell_idx, &glyph_id) in word.glyphs.iter().enumerate() {
+                    options_by_cell_and_glyph[cell_idx][glyph_id].push(word_id);
+                }
+            }
+
+            options_by_cell_and_glyph
+        })
+        .collect()
 }
 
 /// A struct identifying a specific slot in the grid.
@@ -547,11 +581,15 @@ pub fn generate_grid_config<'a>(
 
     sort_slot_options(&word_list, &slot_configs, &mut slot_options);
 
+    let slot_options_by_glyph =
+        build_slot_options_by_glyph(&word_list, &slot_configs, &slot_options);
+
     OwnedGridConfig {
         word_list,
         fill,
         slot_configs,
         slot_options,
+        slot_options_by_glyph,
         width,
         height,
         crossing_count,
@@ -835,11 +873,15 @@ pub fn generate_grid_config_from_slots_string(
 
     sort_slot_options(&word_list, &parsed.slot_configs, &mut slot_options);
 
+    let slot_options_by_glyph =
+        build_slot_options_by_glyph(&word_list, &parsed.slot_configs, &slot_options);
+
     OwnedGridConfig {
         word_list,
         fill,
         slot_configs: parsed.slot_configs,
         slot_options,
+        slot_options_by_glyph,
         width: 1,
         height: 1,
         crossing_count: parsed.crossing_count,

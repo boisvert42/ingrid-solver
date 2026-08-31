@@ -403,36 +403,36 @@ pub fn establish_arc_consistency<Adapter: ArcConsistencyAdapter>(
                 Reverse(FloatOrd(max_weight))
             });
 
-            // For each queued cell, go through the crossing slot's options and eliminate any that
-            // are incompatible with this slot's possible values.
+            // For each queued cell, eliminate options from crossing slots that rely on depleted glyphs.
             for cell_idx in cell_idxs {
+                let depleted_glyph_ids: Vec<usize> = slot_states[slot_id]
+                    .get_glyph_counts(adapter)[cell_idx]
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(glyph_id, &count)| if count == 0 { Some(glyph_id) } else { None })
+                    .collect();
+
                 for crossing in &config.slot_configs[slot_id].crossings[cell_idx] {
                     let other_slot_id = crossing.other_slot_id;
                     let other_slot_cell = crossing.other_slot_cell;
 
-                    let other_slot_config = &config.slot_configs[other_slot_id];
-                    let other_slot_options = &config.slot_options[other_slot_id];
+                    if fixed_slots[other_slot_id] {
+                        continue;
+                    }
 
-                    for &slot_option_word_id in other_slot_options {
-                        // If this word has already been eliminated, we don't need to check it again.
-                        if adapter.is_word_eliminated(other_slot_id, slot_option_word_id)
-                            || slot_states[other_slot_id]
-                                .eliminations
-                                .contains(slot_option_word_id)
-                        {
-                            continue;
-                        }
+                    for &glyph_id in &depleted_glyph_ids {
+                        let invalid_options = &config.slot_options_by_glyph[other_slot_id]
+                            [other_slot_cell][glyph_id];
 
-                        let slot_option_word =
-                            &config.word_list.words[other_slot_config.length][slot_option_word_id];
-                        let slot_option_glyph = slot_option_word.glyphs[other_slot_cell];
+                        for &slot_option_word_id in invalid_options {
+                            if adapter.is_word_eliminated(other_slot_id, slot_option_word_id)
+                                || slot_states[other_slot_id]
+                                    .eliminations
+                                    .contains(slot_option_word_id)
+                            {
+                                continue;
+                            }
 
-                        let number_of_matching_options =
-                            slot_states[slot_id].get_glyph_counts(adapter)[cell_idx][slot_option_glyph];
-
-                        // If this word contains a glyph in the crossing cell that doesn't correspond to
-                        // any options available in this cell, we need to eliminate it as an option.
-                        if number_of_matching_options == 0 {
                             eliminate_word(
                                 &mut slot_states,
                                 other_slot_id,
