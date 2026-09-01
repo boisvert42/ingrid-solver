@@ -560,8 +560,27 @@ pub fn generate_grid_config<'a>(
         })
         .collect();
 
-    let mut slot_options =
-        generate_all_slot_options(&mut word_list, &fill, &slot_configs, width, min_score);
+    let mut slot_options: Vec<Vec<WordId>> = slot_configs
+        .iter()
+        .map(|slot| {
+            let complete_fill = slot.complete_fill(&fill, width);
+            let allowed_word_ids = complete_fill.map(|glyphs| {
+                let word_string: String = glyphs
+                    .iter()
+                    .map(|&glyph_id| word_list.glyphs[glyph_id])
+                    .collect();
+                let (_len, word_id) = word_list.get_word_id_or_add_hidden(&word_string);
+                HashSet::from([word_id])
+            });
+            generate_slot_options(
+                &mut word_list,
+                &slot.fill(&fill, width),
+                slot.min_score_override.unwrap_or(min_score),
+                slot.filter_pattern.as_ref(),
+                allowed_word_ids.as_ref(),
+            )
+        })
+        .collect();
 
     sort_slot_options(&word_list, &slot_configs, &mut slot_options);
 
@@ -702,6 +721,7 @@ pub struct ParsedSlots {
     pub crossing_count: usize,
     pub cell_names: Vec<String>,
     pub cell_values: HashMap<String, char>,
+    pub prefilled_words: HashMap<SlotId, String>,
 }
 
 /// Parse a custom slots string definition.
@@ -729,6 +749,7 @@ pub fn parse_slots_string(slots_string: &str) -> ParsedSlots {
 
     let mut slots_cell_names: Vec<Vec<String>> = vec![];
     let mut cell_values: HashMap<String, char> = HashMap::new();
+    let mut prefilled_words: HashMap<SlotId, String> = HashMap::new();
     for line in lines {
         let mut names: Vec<String> = line.split_whitespace()
             .map(std::string::ToString::to_string)
@@ -742,6 +763,8 @@ pub fn parse_slots_string(slots_string: &str) -> ParsedSlots {
                 }
             }
             if let Some(word) = prefilled_word {
+                let slot_id = slots_cell_names.len();
+                prefilled_words.insert(slot_id, word.to_lowercase());
                 names.pop(); // Remove the "=WORD" token from the cell names
                 for (idx, c) in word.chars().enumerate() {
                     if idx < names.len() && c != '.' && c != '?' {
@@ -827,6 +850,7 @@ pub fn parse_slots_string(slots_string: &str) -> ParsedSlots {
         crossing_count: crossing_id_counter,
         cell_names,
         cell_values,
+        prefilled_words,
     }
 }
 
@@ -847,13 +871,23 @@ pub fn generate_grid_config_from_slots_string(
         }
     }
 
-    let mut slot_options = generate_all_slot_options(
-        &mut word_list,
-        &fill,
-        &parsed.slot_configs,
-        1,
-        min_score,
-    );
+    let mut slot_options: Vec<Vec<WordId>> = parsed
+        .slot_configs
+        .iter()
+        .map(|slot| {
+            let allowed_word_ids = parsed.prefilled_words.get(&slot.id).map(|word_str| {
+                let (_len, word_id) = word_list.get_word_id_or_add_hidden(word_str);
+                HashSet::from([word_id])
+            });
+            generate_slot_options(
+                &mut word_list,
+                &slot.fill(&fill, 1),
+                slot.min_score_override.unwrap_or(min_score),
+                slot.filter_pattern.as_ref(),
+                allowed_word_ids.as_ref(),
+            )
+        })
+        .collect();
 
     sort_slot_options(&word_list, &parsed.slot_configs, &mut slot_options);
 
@@ -1128,6 +1162,42 @@ mod custom_topology_tests {
         assert!(
             result.is_err(),
             "Expected grid to be unfillable because 'cracs' is not in the dictionary"
+        );
+    }
+
+    #[test]
+    fn test_explicit_prefill_allows_non_dictionary_word() {
+        let slots_input = "
+            a b c d e f g h =SCARCEST ;
+            h g f ;
+            e d c b a =CRACS ;
+        ";
+
+        let words = vec![
+            ("scarcest".to_string(), 100),
+            ("tse".to_string(), 100),
+            // Note: "cracs" is NOT in words, but IS explicitly prefilled on slot 2!
+        ];
+
+        let word_list = WordList::new(
+            vec![WordListSourceConfig {
+                id: "0".into(),
+                enabled: true,
+                provider: WordListSourceConfigProvider::Memory { words },
+                normalization: None,
+            }],
+            None,
+            Some(8),
+            None,
+        );
+
+        let owned_config = generate_grid_config_from_slots_string(word_list, slots_input, 0);
+
+        // Since slot 2 WAS explicitly prefilled with "=CRACS", it is allowed and find_fill succeeds!
+        let result = find_fill(&owned_config.to_config_ref(), None, None);
+        assert!(
+            result.is_ok(),
+            "Expected grid to be fillable when 'cracs' is explicitly prefilled"
         );
     }
 }

@@ -1,18 +1,17 @@
+use std::collections::{HashMap, HashSet};
 use wasm_bindgen::prelude::*;
-use crate::grid_config::{SlotConfig, GridConfig};
-use crate::types::GlyphId;
+use serde_derive::{Deserialize, Serialize};
+use crate::grid_config::{GridConfig, SlotConfig};
 use crate::word_list::{WordList, WordListSourceConfig, WordListSourceConfigProvider};
 use crate::arc_consistency::{establish_arc_consistency_for_static_grid, EliminationSet};
+use crate::types::{GlyphId, WordId};
 use crate::backtracking_search::find_fill;
-use std::collections::HashMap;
 
-use serde_derive::Serialize;
-
-#[derive(Serialize)]
-struct JsSlotConfig {
-    id: usize,
-    cells: Vec<String>,
-    length: usize,
+#[derive(Serialize, Deserialize)]
+pub struct JsSlotConfig {
+    pub id: usize,
+    pub cells: Vec<String>,
+    pub length: usize,
 }
 
 #[wasm_bindgen]
@@ -22,6 +21,7 @@ pub struct WasmSolver {
     crossing_count: usize,
     cell_names: Vec<String>,
     cell_values: HashMap<String, char>,
+    prefilled_words: HashMap<usize, String>,
     min_score: u16,
 }
 
@@ -37,6 +37,7 @@ impl WasmSolver {
             crossing_count: parsed.crossing_count,
             cell_names: parsed.cell_names,
             cell_values: parsed.cell_values,
+            prefilled_words: parsed.prefilled_words,
             min_score: 50,
         })
     }
@@ -117,13 +118,23 @@ impl WasmSolver {
             }
         }
         
-        let mut slot_options = crate::grid_config::generate_all_slot_options(
-            word_list,
-            &fill,
-            &self.slot_configs,
-            1, // width (dummy)
-            self.min_score,
-        );
+        let mut slot_options: Vec<Vec<WordId>> = self
+            .slot_configs
+            .iter()
+            .map(|slot| {
+                let allowed_word_ids = self.prefilled_words.get(&slot.id).map(|word_str| {
+                    let (_len, word_id) = word_list.get_word_id_or_add_hidden(word_str);
+                    HashSet::from([word_id])
+                });
+                crate::grid_config::generate_slot_options(
+                    word_list,
+                    &slot.fill(&fill, 1),
+                    slot.min_score_override.unwrap_or(self.min_score),
+                    slot.filter_pattern.as_ref(),
+                    allowed_word_ids.as_ref(),
+                )
+            })
+            .collect();
         
         crate::grid_config::sort_slot_options(word_list, &self.slot_configs, &mut slot_options);
         let slot_options_by_glyph = crate::grid_config::build_slot_options_by_glyph(
@@ -194,13 +205,28 @@ impl WasmSolver {
             }
         }
         
-        let mut slot_options = crate::grid_config::generate_all_slot_options(
-            word_list,
-            &fill,
-            &self.slot_configs,
-            1,
-            self.min_score,
-        );
+        let mut slot_options: Vec<Vec<WordId>> = self
+            .slot_configs
+            .iter()
+            .map(|slot| {
+                let allowed_word_ids = if slot.id == slot_id {
+                    let (_len, word_id) = word_list.get_word_id_or_add_hidden(word);
+                    Some(HashSet::from([word_id]))
+                } else {
+                    self.prefilled_words.get(&slot.id).map(|word_str| {
+                        let (_len, word_id) = word_list.get_word_id_or_add_hidden(word_str);
+                        HashSet::from([word_id])
+                    })
+                };
+                crate::grid_config::generate_slot_options(
+                    word_list,
+                    &slot.fill(&fill, 1),
+                    slot.min_score_override.unwrap_or(self.min_score),
+                    slot.filter_pattern.as_ref(),
+                    allowed_word_ids.as_ref(),
+                )
+            })
+            .collect();
         
         crate::grid_config::sort_slot_options(word_list, &self.slot_configs, &mut slot_options);
         let slot_options_by_glyph = crate::grid_config::build_slot_options_by_glyph(

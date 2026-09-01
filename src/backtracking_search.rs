@@ -723,6 +723,11 @@ pub fn find_fill(
         owned_elimination_sets.as_mut().unwrap()
     });
 
+    // If any slot has zero options available initially, we cannot find a fill.
+    if config.slot_options.iter().any(|options| options.is_empty()) {
+        return Err(FillFailure::HardFailure);
+    }
+
     // Create basic Slot structs for the grid, which we can copy for each retry instead of having
     // to regenerate from scratch.
     let mut slots: Vec<Slot> = config
@@ -745,7 +750,6 @@ pub fn find_fill(
                 eliminations: vec![None; config.word_list.words[slot_config.length].len()],
                 remaining_option_count: config.slot_options[slot_config.id].len(),
                 fixed_word_id: if is_fixed {
-                    assert_eq!(config.slot_options[slot_config.id].len(), 1);
                     Some(config.slot_options[slot_config.id][0])
                 } else {
                     None
