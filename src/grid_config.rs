@@ -483,52 +483,36 @@ pub fn generate_slot_options(
 ) -> Vec<WordId> {
     let length = entry_fill.len();
 
-    // If the slot is fully specified, we need to either use an existing word or create a new
-    // (hidden) one.
-    let complete_fill: Option<Vec<GlyphId>> = entry_fill.iter().copied().collect();
+    let options: Vec<WordId> = (0..word_list.words[length].len())
+        .filter(|&word_id| {
+            let word = &word_list.words[length][word_id];
+            let enforce_criteria = allowed_word_ids
+                .is_none_or(|allowed_word_ids| !allowed_word_ids.contains(&word_id));
 
-    if let Some(complete_fill) = complete_fill {
-        let word_string: String = complete_fill
-            .iter()
-            .map(|&glyph_id| word_list.glyphs[glyph_id])
-            .collect();
-
-        let (_word_length, word_id) = word_list.get_word_id_or_add_hidden(&word_string);
-
-        vec![word_id]
-    } else {
-        let options: Vec<WordId> = (0..word_list.words[length].len())
-            .filter(|&word_id| {
-                let word = &word_list.words[length][word_id];
-                let enforce_criteria = allowed_word_ids.is_none_or(|allowed_word_ids| {
-                    !allowed_word_ids.contains(&word_id)
-                });
-
-                if enforce_criteria {
-                    if word.hidden || word.score < min_score {
-                        return false;
-                    }
-
-                    if let Some(filter_pattern) = filter_pattern.as_ref() {
-                        if !filter_pattern
-                            .is_match(&word.normalized_string)
-                            .unwrap_or(false)
-                        {
-                            return false;
-                        }
-                    }
+            if enforce_criteria {
+                if word.hidden || word.score < min_score {
+                    return false;
                 }
 
-                entry_fill.iter().enumerate().all(|(cell_idx, cell_fill)| {
-                    cell_fill
-                        .map(|g| g == word.glyphs[cell_idx])
-                        .unwrap_or(true)
-                })
-            })
-            .collect();
+                if let Some(filter_pattern) = filter_pattern.as_ref() {
+                    if !filter_pattern
+                        .is_match(&word.normalized_string)
+                        .unwrap_or(false)
+                    {
+                        return false;
+                    }
+                }
+            }
 
-        options
-    }
+            entry_fill.iter().enumerate().all(|(cell_idx, cell_fill)| {
+                cell_fill
+                    .map(|g| g == word.glyphs[cell_idx])
+                    .unwrap_or(true)
+            })
+        })
+        .collect();
+
+    options
 }
 
 /// Given an input fill and an array of slot configs, generate the possible options for each slot
@@ -1105,5 +1089,45 @@ mod custom_topology_tests {
         let word_list_ref = &owned_config.word_list;
         assert_eq!(owned_config.fill[a_idx], Some(word_list_ref.glyph_id_by_char.get(&'m').copied().unwrap()));
         assert_eq!(owned_config.fill[d_idx], Some(word_list_ref.glyph_id_by_char.get(&'k').copied().unwrap()));
+    }
+
+    #[test]
+    fn test_backwards_slots_with_prefill_non_word() {
+        let slots_input = "
+            a b c d e f g h =SCARCEST ;
+            h g f ;
+            e d c b a ;
+        ";
+
+        let words = vec![
+            ("scarcest".to_string(), 100),
+            ("tse".to_string(), 100),
+            ("crane".to_string(), 100),
+            ("clean".to_string(), 100),
+            // Note: "cracs" is NOT in words!
+        ];
+
+        let word_list = WordList::new(
+            vec![WordListSourceConfig {
+                id: "0".into(),
+                enabled: true,
+                provider: WordListSourceConfigProvider::Memory { words },
+                normalization: None,
+            }],
+            None,
+            Some(8),
+            None,
+        );
+
+        let owned_config = generate_grid_config_from_slots_string(word_list, slots_input, 0);
+
+        // Since slot 2 ("e d c b a") requires "cracs" which is not in the dictionary,
+        // and slot 2 was NOT explicitly prefilled with "=CRACS", it should have 0 options
+        // and find_fill should fail!
+        let result = find_fill(&owned_config.to_config_ref(), None, None);
+        assert!(
+            result.is_err(),
+            "Expected grid to be unfillable because 'cracs' is not in the dictionary"
+        );
     }
 }
